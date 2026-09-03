@@ -17,6 +17,7 @@ import {
 import { Modal, FormField } from './Primitives';
 import { Select2, type Select2Option } from './Select2';
 import { Button } from '@/components/ui/button';
+import { SystemLinkField } from './SystemLinkField';
 import {
   fetchEngagementFinance,
   fetchEngagementFinanceLookups,
@@ -1926,22 +1927,7 @@ export function EngagementDrillBitsTab({
               placeholder="Select…"
             />
           </FormField>
-          <FormField label="Upload Rental Forecast">
-            <div className="flex items-center gap-1.5">
-              <input
-                type="url"
-                className={`${inputCls} flex-1`}
-                value={rentalForecastLink}
-                onChange={(e) => { markVenueDealEdited(); setRentalForecastLink(e.target.value); }}
-                placeholder="https://…"
-              />
-              {rentalForecastLink.trim() && isValidHttpOrHttpsUrl(rentalForecastLink) && (
-                <a href={rentalForecastLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open Rental Forecast">
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              )}
-            </div>
-          </FormField>
+          <SystemLinkField label="Upload Rental Forecast" value={rentalForecastLink} onChange={(value) => { markVenueDealEdited(); setRentalForecastLink(value); }} />
         </div>
         <SaveBtn onClick={() => saveVenueDealMut.mutate()} pending={saveVenueDealMut.isPending} dirty={hasVenueDealEdited} label="Save Venue Deal" />
       </section>
@@ -1965,57 +1951,12 @@ export function EngagementDrillBitsTab({
             <div className="space-y-4">
               {isCoPro && (
                 <div className="grid grid-cols-1 gap-4">
-                  <FormField label="Link to PDF of Confirmed Artist Offer">
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="url"
-                        className={`${inputCls} flex-1`}
-                        value={confirmedArtistOfferLink}
-                        onChange={(e) => { markVenueDocsEdited(); setConfirmedArtistOfferLink(e.target.value); }}
-                        placeholder="https://…"
-                      />
-                      {confirmedArtistOfferLink.trim() && isValidHttpOrHttpsUrl(confirmedArtistOfferLink) && (
-                        <a href={confirmedArtistOfferLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
-                          <ExternalLink className="h-4 w-4" />
-                        </a>
-                      )}
-                    </div>
-                  </FormField>
-                  <FormField label="Link to PDF of Confirmed Partner Forecast">
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="url"
-                        className={`${inputCls} flex-1`}
-                        value={confirmedPartnerForecastLink}
-                        onChange={(e) => { markVenueDocsEdited(); setConfirmedPartnerForecastLink(e.target.value); }}
-                        placeholder="https://…"
-                      />
-                      {confirmedPartnerForecastLink.trim() && isValidHttpOrHttpsUrl(confirmedPartnerForecastLink) && (
-                        <a href={confirmedPartnerForecastLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
-                          <ExternalLink className="h-4 w-4" />
-                        </a>
-                      )}
-                    </div>
-                  </FormField>
+                  <SystemLinkField label="Link to PDF of Confirmed Artist Offer" value={confirmedArtistOfferLink} onChange={(value) => { markVenueDocsEdited(); setConfirmedArtistOfferLink(value); }} />
+                  <SystemLinkField label="Link to PDF of Confirmed Partner Forecast" value={confirmedPartnerForecastLink} onChange={(value) => { markVenueDocsEdited(); setConfirmedPartnerForecastLink(value); }} />
                 </div>
               )}
               {isRental && (
-                <FormField label="Link to PDF of Confirmed Rental Forecast">
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="url"
-                      className={`${inputCls} flex-1`}
-                      value={confirmedRentalForecastLink}
-                      onChange={(e) => { markVenueDocsEdited(); setConfirmedRentalForecastLink(e.target.value); }}
-                      placeholder="https://…"
-                    />
-                    {confirmedRentalForecastLink.trim() && isValidHttpOrHttpsUrl(confirmedRentalForecastLink) && (
-                      <a href={confirmedRentalForecastLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
-                        <ExternalLink className="h-4 w-4" />
-                      </a>
-                    )}
-                  </div>
-                </FormField>
+                <SystemLinkField label="Link to PDF of Confirmed Rental Forecast" value={confirmedRentalForecastLink} onChange={(value) => { markVenueDocsEdited(); setConfirmedRentalForecastLink(value); }} />
               )}
               {!isCoPro && !isRental && (
                 <p className="text-sm text-text-muted italic">No venue documents applicable for this deal type.</p>
@@ -2041,54 +1982,9 @@ export function EngagementDrillBitsTab({
               placeholder="Select…"
             />
           </FormField>
-          <FormField label="Link to PDF of Confirmed Artist Offer">
-            <div className="flex items-center gap-1.5">
-              <input
-                type="url"
-                className={`${inputCls} flex-1`}
-                value={thirdPartyArtistOfferLink}
-                onChange={(e) => { markThirdPartyEdited(); setThirdPartyArtistOfferLink(e.target.value); }}
-                placeholder="https://…"
-              />
-              {thirdPartyArtistOfferLink.trim() && isValidHttpOrHttpsUrl(thirdPartyArtistOfferLink) && (
-                <a href={thirdPartyArtistOfferLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              )}
-            </div>
-          </FormField>
-          <FormField label="Link to PDF of Confirmed Partner Forecast">
-            <div className="flex items-center gap-1.5">
-              <input
-                type="url"
-                className={`${inputCls} flex-1`}
-                value={thirdPartyPartnerForecastLink}
-                onChange={(e) => { markThirdPartyEdited(); setThirdPartyPartnerForecastLink(e.target.value); }}
-                placeholder="https://…"
-              />
-              {thirdPartyPartnerForecastLink.trim() && isValidHttpOrHttpsUrl(thirdPartyPartnerForecastLink) && (
-                <a href={thirdPartyPartnerForecastLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              )}
-            </div>
-          </FormField>
-          <FormField label="Link to PDF of Confirmed Tour Offer">
-            <div className="flex items-center gap-1.5">
-              <input
-                type="url"
-                className={`${inputCls} flex-1`}
-                value={thirdPartyTourOfferLink}
-                onChange={(e) => { markThirdPartyEdited(); setThirdPartyTourOfferLink(e.target.value); }}
-                placeholder="https://…"
-              />
-              {thirdPartyTourOfferLink.trim() && isValidHttpOrHttpsUrl(thirdPartyTourOfferLink) && (
-                <a href={thirdPartyTourOfferLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              )}
-            </div>
-          </FormField>
+          <SystemLinkField label="Link to PDF of Confirmed Artist Offer" value={thirdPartyArtistOfferLink} onChange={(value) => { markThirdPartyEdited(); setThirdPartyArtistOfferLink(value); }} />
+          <SystemLinkField label="Link to PDF of Confirmed Partner Forecast" value={thirdPartyPartnerForecastLink} onChange={(value) => { markThirdPartyEdited(); setThirdPartyPartnerForecastLink(value); }} />
+          <SystemLinkField label="Link to PDF of Confirmed Tour Offer" value={thirdPartyTourOfferLink} onChange={(value) => { markThirdPartyEdited(); setThirdPartyTourOfferLink(value); }} />
         </div>
         <SaveBtn onClick={() => saveThirdPartyMut.mutate()} pending={saveThirdPartyMut.isPending} dirty={hasThirdPartyEdited} label="Save 3rd Party Partner" />
       </section>

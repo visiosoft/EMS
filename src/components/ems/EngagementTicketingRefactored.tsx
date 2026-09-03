@@ -25,6 +25,7 @@ import {
 import { fetchCompanies } from '@/api/companyApi';
 import { fetchTourMarketing, type ApiTourTicketingOfferCode } from '@/api/tourMarketingApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import { SystemLinkField } from './SystemLinkField';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -389,40 +390,18 @@ export function EngagementTicketingRefactored({ engagementId, row, addToast, onD
       <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-4">
         {sectionHeader('Purchase Links')}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Presale Ticketing Link">
-            <div className="flex items-center gap-1.5">
-              <input
-                type="url"
-                className="w-full flex-1 rounded border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-ems-accent/50"
-                value={presaleLinkUrl}
-                onChange={(e) => setPresaleLinkUrl(e.target.value)}
-                placeholder="https://…"
-                disabled={saveLinksMut.isPending}
-              />
-              {presaleLinkUrl.trim() && (
-                <a href={presaleLinkUrl.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              )}
-            </div>
-          </FormField>
-          <FormField label="Public Sale Ticketing Link">
-            <div className="flex items-center gap-1.5">
-              <input
-                type="url"
-                className="w-full flex-1 rounded border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-ems-accent/50"
-                value={publicSaleLinkUrl}
-                onChange={(e) => setPublicSaleLinkUrl(e.target.value)}
-                placeholder="https://…"
-                disabled={saveLinksMut.isPending}
-              />
-              {publicSaleLinkUrl.trim() && (
-                <a href={publicSaleLinkUrl.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              )}
-            </div>
-          </FormField>
+          <SystemLinkField
+            label="Presale Ticketing Link"
+            value={presaleLinkUrl}
+            onChange={setPresaleLinkUrl}
+            disabled={saveLinksMut.isPending}
+          />
+          <SystemLinkField
+            label="Public Sale Ticketing Link"
+            value={publicSaleLinkUrl}
+            onChange={setPublicSaleLinkUrl}
+            disabled={saveLinksMut.isPending}
+          />
         </div>
         <div className="flex justify-end pt-2 border-t border-border">
           <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"
@@ -518,40 +497,8 @@ export function EngagementTicketingRefactored({ engagementId, row, addToast, onD
       <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-4">
         {sectionHeader('Complimentary Ticket Request')}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Comp Ticket Form Link">
-            <div className="flex items-center gap-1.5">
-              <input
-                type="url"
-                className="w-full flex-1 rounded border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-ems-accent/50"
-                value={compTicketForm}
-                onChange={(e) => setCompTicketForm(e.target.value)}
-                placeholder="https://…"
-                disabled={saveCompMut.isPending}
-              />
-              {compTicketForm.trim() && (
-                <a href={compTicketForm.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              )}
-            </div>
-          </FormField>
-          <FormField label="Comp Ticket Excel Sheet">
-            <div className="flex items-center gap-1.5">
-              <input
-                type="url"
-                className="w-full flex-1 rounded border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-ems-accent/50"
-                value={compTicketExcelSheet}
-                onChange={(e) => setCompTicketExcelSheet(e.target.value)}
-                placeholder="https://…"
-                disabled={saveCompMut.isPending}
-              />
-              {compTicketExcelSheet.trim() && (
-                <a href={compTicketExcelSheet.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              )}
-            </div>
-          </FormField>
+          <SystemLinkField label="Comp Ticket Form Link" value={compTicketForm} onChange={setCompTicketForm} disabled={saveCompMut.isPending} />
+          <SystemLinkField label="Comp Ticket Excel Sheet" value={compTicketExcelSheet} onChange={setCompTicketExcelSheet} disabled={saveCompMut.isPending} accept=".xls,.xlsx" />
         </div>
         <div className="flex justify-end pt-2 border-t border-border">
           <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"

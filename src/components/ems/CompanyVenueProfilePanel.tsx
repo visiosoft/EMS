@@ -5,6 +5,7 @@ import { ContactPhoneRow } from './ContactPhoneRow';
 import { FormField } from './Primitives';
 import { Select2, type Select2Option } from './Select2';
 import { companyToSelect2Options } from './companySelectOptions';
+import { SystemLinkField } from './SystemLinkField';
 import { DEFAULT_PHONE_COUNTRY } from '@/lib/contactPhoneOptions';
 import {
   parsePhoneFieldValue,
@@ -2464,18 +2465,16 @@ export function CompanyVenueProfilePanel({
                   <input
                     className={inputCls}
                     value={withholdingLinkName}
-                    onChange={(e) => setWithholdingLinkName(e.target.value)}
                     placeholder="Form or document name"
                     maxLength={255}
                     aria-label="Name of form"
+                    disabled
                   />
-                  <input
-                    className={inputCls}
+                  <SystemLinkField
+                    label={withholdingLinkName || 'Name of Form'}
                     value={withholdingLinkUrl}
-                    onChange={(e) => setWithholdingLinkUrl(e.target.value)}
+                    onChange={setWithholdingLinkUrl}
                     placeholder="https://..."
-                    maxLength={2048}
-                    aria-label="Form link"
                   />
                 </div>
               </div>
@@ -2513,24 +2512,12 @@ export function CompanyVenueProfilePanel({
                 />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-[10rem_1fr] sm:items-center gap-2 sm:gap-4">
-                <div className="text-sm text-text-primary sm:text-right sm:pr-1">IAE Waiver Instructions</div>
-                <input
-                  className={inputCls}
-                  value={iaeWaiverUrl}
-                  onChange={(e) => setIaeWaiverUrl(e.target.value)}
-                  placeholder="https://..."
-                  maxLength={2048}
-                />
+                <div />
+                <SystemLinkField label="IAE Waiver Instructions" value={iaeWaiverUrl} onChange={setIaeWaiverUrl} />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-[10rem_1fr] sm:items-center gap-2 sm:gap-4">
-                <div className="text-sm text-text-primary sm:text-right sm:pr-1">Artist Waiver Instructions</div>
-                <input
-                  className={inputCls}
-                  value={artistWaiverUrl}
-                  onChange={(e) => setArtistWaiverUrl(e.target.value)}
-                  placeholder="https://..."
-                  maxLength={2048}
-                />
+                <div />
+                <SystemLinkField label="Artist Waiver Instructions" value={artistWaiverUrl} onChange={setArtistWaiverUrl} />
               </div>
             </div>
             <div className="flex flex-wrap justify-end pt-2 max-w-3xl">

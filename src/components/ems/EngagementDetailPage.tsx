@@ -178,6 +178,7 @@ import { EngagementMarketingReadOnlySection } from './EngagementMarketingReadOnl
 import { EngagementContractPanel } from './EngagementContractPanel';
 import { EngagementDrillBitsTab } from './EngagementDrillBitsTab';
 import { EngagementTicketingRefactored } from './EngagementTicketingRefactored';
+import { SystemLinkField } from './SystemLinkField';
 import { invalidateSalesCapacityRelatedQueries } from '@/api/cacheHelpers';
 import {
   PERFORMANCE_TICKETING_STATUS_VALUES,
@@ -422,6 +423,17 @@ function VenueTabEditField({
   urlField?: boolean;
   inputBgClass?: string;
 }) {
+  if (urlField && !multiline) {
+    return (
+      <SystemLinkField
+        label={label}
+        value={value}
+        onChange={onChange}
+        disabled={disabled}
+      />
+    );
+  }
+
   const invalid = !multiline && urlField === true && !isValidHttpOrHttpsUrl(value);
   const bg = inputBgClass ?? 'bg-background';
   const cls =
@@ -2391,13 +2403,11 @@ function TaxationEditableLinkField({
 }) {
   const trimmed = value.trim();
   return (
-    <FormField label={label}>
-      <input
-        className={inputCls}
+    <div>
+      <SystemLinkField
+        label={label}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        type="url"
-        inputMode="url"
+        onChange={onChange}
         placeholder="SharePoint Link"
         disabled={disabled || !hasWithholding}
       />
@@ -2417,7 +2427,7 @@ function TaxationEditableLinkField({
             : 'Select a withholding record before attaching this link.'}
         </p>
       )}
-    </FormField>
+    </div>
   );
 }
 
@@ -4297,25 +4307,16 @@ function EngagementMainInformationPanel({
 
           {fieldRow(
             'Link to Folder on Sharepoint Server',
-            <div className="flex items-center gap-1.5">
-              <input
-                className={`${inputCls} flex-1`}
-                type="url"
-                inputMode="url"
+            <SystemLinkField
+                label="Link to Folder on Sharepoint Server"
                 value={sharePointFolderLink}
-                onChange={(e) => {
+                onChange={(value) => {
                   markMainInfoUserEdited();
-                  setSharePointFolderLink(e.target.value);
+                  setSharePointFolderLink(value);
                 }}
                 disabled={disabled}
                 placeholder="Folder on Sharepoint Server (IAE Cloud Server)"
-              />
-              {sharePointFolderLink.trim() && isValidHttpOrHttpsUrl(sharePointFolderLink) && (
-                <a href={sharePointFolderLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              )}
-            </div>,
+            />,
             'Stored on the engagement finance record as the SharePoint folder link.',
           )}
 
@@ -4912,49 +4913,27 @@ function EngagementArtistTermsPanel({
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
         {fieldRow(
           'Link to Final Accepted Offer',
-          <div className="flex items-center gap-1.5">
-            <input
-              id="at-offer-link"
-              type="url"
-              inputMode="url"
-              className={`${inputCls} flex-1`}
+          <SystemLinkField
+              label="Link to Final Accepted Offer"
               value={finalOfferLink}
-              onChange={(e) => {
+              onChange={(value) => {
                 markArtistTermsUserEdited();
-                setFinalOfferLink(e.target.value);
+                setFinalOfferLink(value);
               }}
               disabled={disabled}
-              placeholder="https://…"
-            />
-            {finalOfferLink.trim() && isValidHttpOrHttpsUrl(finalOfferLink) && (
-              <a href={finalOfferLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
-                <ExternalLink className="h-4 w-4" />
-              </a>
-            )}
-          </div>,
+          />,
         )}
         {fieldRow(
           'Link to Settlement File on SharePoint Server',
-          <div className="flex items-center gap-1.5">
-            <input
-              id="at-settlement-link"
-              type="url"
-              inputMode="url"
-              className={`${inputCls} flex-1`}
+          <SystemLinkField
+              label="Link to Settlement File on SharePoint Server"
               value={settlementFileLink}
-              onChange={(e) => {
+              onChange={(value) => {
                 markArtistTermsUserEdited();
-                setSettlementFileLink(e.target.value);
+                setSettlementFileLink(value);
               }}
               disabled={disabled}
-              placeholder="https://…"
-            />
-            {settlementFileLink.trim() && isValidHttpOrHttpsUrl(settlementFileLink) && (
-              <a href={settlementFileLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
-                <ExternalLink className="h-4 w-4" />
-              </a>
-            )}
-          </div>,
+          />,
         )}
       </div>
 
@@ -5581,57 +5560,30 @@ function EngagementBookingPanel({
           {sectionTitle('Attraction Contract')}
           {fieldRow(
             'Attraction Contract',
-            <div className="flex gap-2 items-center">
-              <input
-                type="url"
-                className={`${whiteInputCls} flex-1`}
+            <SystemLinkField
+                label="Attraction Contract"
                 value={attractionContractLink}
-                onChange={(e) => { markUserEdited(); setAttractionContractLink(e.target.value); }}
+                onChange={(value) => { markUserEdited(); setAttractionContractLink(value); }}
                 disabled={disabled}
-                placeholder="https://…"
-              />
-              {attractionContractLink.trim() && isValidHttpOrHttpsUrl(attractionContractLink) && (
-                <a href={attractionContractLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              )}
-            </div>,
+            />,
           )}
           {fieldRow(
             'Partially Executed',
-            <div className="flex gap-2 items-center">
-              <input
-                type="url"
-                className={`${whiteInputCls} flex-1`}
+            <SystemLinkField
+                label="Partially Executed Attraction Contract"
                 value={partiallyExecutedLink}
-                onChange={(e) => { markUserEdited(); setPartiallyExecutedLink(e.target.value); }}
+                onChange={(value) => { markUserEdited(); setPartiallyExecutedLink(value); }}
                 disabled={disabled}
-                placeholder="https://…"
-              />
-              {partiallyExecutedLink.trim() && isValidHttpOrHttpsUrl(partiallyExecutedLink) && (
-                <a href={partiallyExecutedLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              )}
-            </div>,
+            />,
           )}
           {fieldRow(
             'Fully Executed',
-            <div className="flex gap-2 items-center">
-              <input
-                type="url"
-                className={`${whiteInputCls} flex-1`}
+            <SystemLinkField
+                label="Fully Executed Attraction Contract"
                 value={fullyExecutedLink}
-                onChange={(e) => { markUserEdited(); setFullyExecutedLink(e.target.value); }}
+                onChange={(value) => { markUserEdited(); setFullyExecutedLink(value); }}
                 disabled={disabled}
-                placeholder="https://…"
-              />
-              {fullyExecutedLink.trim() && isValidHttpOrHttpsUrl(fullyExecutedLink) && (
-                <a href={fullyExecutedLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              )}
-            </div>,
+            />,
           )}
         </div>
 
@@ -6511,37 +6463,16 @@ function EngagementEventBusinessPanel({
         {sectionHeader('Settlement Files')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Tour Settlement File (SharePoint)',
-            <div className="flex items-center gap-1.5">
-              <input className={`${inputCls} flex-1`} value={tourSettlementFileSharePointLink} maxLength={2048}
-                placeholder="https://..."
-                onChange={(e) => { markSettlementFilesEdited(); setTourSettlementFileSharePointLink(e.target.value); }}
-                disabled={disabled} />
-              {tourSettlementFileSharePointLink.trim() && isValidHttpOrHttpsUrl(tourSettlementFileSharePointLink) && (
-                <a href={tourSettlementFileSharePointLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link"><ExternalLink className="h-4 w-4" /></a>
-              )}
-            </div>)}
+            <SystemLinkField label="Tour Settlement File (SharePoint)" value={tourSettlementFileSharePointLink}
+              onChange={(value) => { markSettlementFilesEdited(); setTourSettlementFileSharePointLink(value); }} disabled={disabled} />)}
           {fieldRow('Venue Settlement File (SharePoint)',
-            <div className="flex items-center gap-1.5">
-              <input className={`${inputCls} flex-1`} value={venueSettlementFileSharePointLink} maxLength={2048}
-                placeholder="https://..."
-                onChange={(e) => { markSettlementFilesEdited(); setVenueSettlementFileSharePointLink(e.target.value); }}
-                disabled={disabled} />
-              {venueSettlementFileSharePointLink.trim() && isValidHttpOrHttpsUrl(venueSettlementFileSharePointLink) && (
-                <a href={venueSettlementFileSharePointLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link"><ExternalLink className="h-4 w-4" /></a>
-              )}
-            </div>)}
+            <SystemLinkField label="Venue Settlement File (SharePoint)" value={venueSettlementFileSharePointLink}
+              onChange={(value) => { markSettlementFilesEdited(); setVenueSettlementFileSharePointLink(value); }} disabled={disabled} />)}
         </div>
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Partner Settlement File (SharePoint)',
-            <div className="flex items-center gap-1.5">
-              <input className={`${inputCls} flex-1`} value={partnerSettlementFileSharePointLink} maxLength={2048}
-                placeholder="https://..."
-                onChange={(e) => { markSettlementFilesEdited(); setPartnerSettlementFileSharePointLink(e.target.value); }}
-                disabled={disabled} />
-              {partnerSettlementFileSharePointLink.trim() && isValidHttpOrHttpsUrl(partnerSettlementFileSharePointLink) && (
-                <a href={partnerSettlementFileSharePointLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link"><ExternalLink className="h-4 w-4" /></a>
-              )}
-            </div>)}
+            <SystemLinkField label="Partner Settlement File (SharePoint)" value={partnerSettlementFileSharePointLink}
+              onChange={(value) => { markSettlementFilesEdited(); setPartnerSettlementFileSharePointLink(value); }} disabled={disabled} />)}
         </div>
         <div className="flex justify-end pt-2">
           <Button type="button" className="bg-ems-accent text-white hover:opacity-90" onClick={() => {
@@ -6598,17 +6529,13 @@ function EngagementEventBusinessPanel({
           {fieldRow('Buyouts ($)',
             moneyInput(attrBuyouts, (v) => { markAttrTermsEdited(); setAttrBuyouts(v); }, 'attr-buyouts'))}
           {fieldRow('Tour Offer Link',
-            <input className={inputCls} value={attrTourOfferLink} maxLength={2048}
-              placeholder="https://..."
-              onChange={(e) => { markAttrTermsEdited(); setAttrTourOfferLink(e.target.value); }}
-              disabled={disabled} />)}
+            <SystemLinkField label="Tour Offer Link" value={attrTourOfferLink}
+              onChange={(value) => { markAttrTermsEdited(); setAttrTourOfferLink(value); }} disabled={disabled} />)}
         </div>
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Fully Executed Attraction Contract Link',
-            <input className={inputCls} value={attrFullyExecutedContractLink} maxLength={2048}
-              placeholder="https://..."
-              onChange={(e) => { markAttrTermsEdited(); setAttrFullyExecutedContractLink(e.target.value); }}
-              disabled={disabled} />)}
+            <SystemLinkField label="Fully Executed Attraction Contract Link" value={attrFullyExecutedContractLink}
+              onChange={(value) => { markAttrTermsEdited(); setAttrFullyExecutedContractLink(value); }} disabled={disabled} />)}
         </div>
         <div className="flex justify-end pt-2">
           <Button
@@ -6677,10 +6604,8 @@ function EngagementEventBusinessPanel({
             </div>,
           )}
           {fieldRow('Link to SharePoint of Fully Executed Venue Contract',
-            <input className={inputCls} value={venueTermsFullyExecutedLink} maxLength={2048}
-              placeholder="https://..."
-              onChange={(e) => { markVenueTermsEdited(); setVenueTermsFullyExecutedLink(e.target.value); }}
-              disabled={disabled} />)}
+            <SystemLinkField label="Link to SharePoint of Fully Executed Venue Contract" value={venueTermsFullyExecutedLink}
+              onChange={(value) => { markVenueTermsEdited(); setVenueTermsFullyExecutedLink(value); }} disabled={disabled} />)}
           {fieldRow('Deal Type',
             <Select2 options={venueDealTypeOptions} value={venueTermsDealTypeId}
               onChange={(v) => { markVenueTermsEdited(); setVenueTermsDealTypeId(v); }}
@@ -6688,10 +6613,8 @@ function EngagementEventBusinessPanel({
         </div>
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Link to SharePoint Venue Forecast',
-            <input className={inputCls} value={venueTermsForecastLink} maxLength={2048}
-              placeholder="https://..."
-              onChange={(e) => { markVenueTermsEdited(); setVenueTermsForecastLink(e.target.value); }}
-              disabled={disabled} />)}
+            <SystemLinkField label="Link to SharePoint Venue Forecast" value={venueTermsForecastLink}
+              onChange={(value) => { markVenueTermsEdited(); setVenueTermsForecastLink(value); }} disabled={disabled} />)}
         </div>
         <div className="flex justify-end pt-2">
           <Button
@@ -6778,9 +6701,9 @@ function EngagementEventBusinessPanel({
               </div>
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
                 {fieldRow('Form to Attraction Link',
-                  <input className={inputCls} value={withholdingFormToAttractionLink} readOnly disabled />)}
+                  <SystemLinkField label="Form to Attraction Link" value={withholdingFormToAttractionLink} onChange={() => undefined} disabled />)}
                 {fieldRow('Form to Municipality Link',
-                  <input className={inputCls} value={withholdingFormToMunicipalityLink} readOnly disabled />)}
+                  <SystemLinkField label="Form to Municipality Link" value={withholdingFormToMunicipalityLink} onChange={() => undefined} disabled />)}
               </div>
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
                 {fieldRow('QuickBooks Number',
@@ -6793,15 +6716,13 @@ function EngagementEventBusinessPanel({
                     {fieldRow('Waiver',
                       <input className={inputCls} value={withholdingWaiver} readOnly disabled />)}
                     {fieldRow('Completed Waiver Link',
-                      <input className={inputCls} type="url" value={withholdingCompletedWaiverLink}
-                        onChange={(e) => { markWithholdingEdited(); setWithholdingCompletedWaiverLink(e.target.value); }}
-                        placeholder="https://..." disabled={disabled} />)}
+                      <SystemLinkField label="Completed Waiver Link" value={withholdingCompletedWaiverLink}
+                        onChange={(value) => { markWithholdingEdited(); setWithholdingCompletedWaiverLink(value); }} disabled={disabled} />)}
                   </div>
                   <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
                     {fieldRow('Tour Waiver Link',
-                      <input className={inputCls} type="url" value={tourWaiverLink}
-                        onChange={(e) => { markWithholdingEdited(); setTourWaiverLink(e.target.value); }}
-                        placeholder="https://..." disabled={disabled} />)}
+                      <SystemLinkField label="Tour Waiver Link" value={tourWaiverLink}
+                        onChange={(value) => { markWithholdingEdited(); setTourWaiverLink(value); }} disabled={disabled} />)}
                   </div>
                   <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
                     {fieldRow('IAE Waiver Submission Date',
@@ -8838,26 +8759,15 @@ function EngagementMarketingPanel({
               )}
               {fieldRow(
                 'Link ID',
-                <div className="flex items-center gap-1.5">
-                  <input
-                    id="mkt-link-id"
-                    type="url"
-                    inputMode="url"
-                    className={`${inputCls} flex-1`}
+                <SystemLinkField
+                    label="Ticketing Link"
                     value={ticketingLinkUrl}
-                    onChange={(e) => {
+                    onChange={(value) => {
                       markMarketingUserEdited();
-                      setTicketingLinkUrl(e.target.value);
+                      setTicketingLinkUrl(value);
                     }}
                     disabled={saveDisabled}
-                    placeholder="https://…"
-                  />
-                  {ticketingLinkUrl.trim() && isValidHttpOrHttpsUrl(ticketingLinkUrl) && (
-                    <a href={ticketingLinkUrl.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
-                      <ExternalLink className="h-4 w-4" />
-                    </a>
-                  )}
-                </div>,
+                />,
               )}
             </div>
 
@@ -10090,22 +10000,12 @@ function EngagementTicketingPanel({
               {sectionHeader('Purchase Links')}
               <div className="grid grid-cols-1 gap-4">
                 {fieldRow('Pre-Sale Ticketing Link',
-                  <div className="flex items-center gap-1.5">
-                    <input className={`${inputCls} flex-1`} type="url" autoComplete="nope" placeholder="https://…" value={ticketingLinkUrl}
-                      onChange={(e) => { markTicketingUserEdited(); setTicketingLinkUrl(e.target.value); }} disabled={disabled} />
-                    {ticketingLinkUrl.trim() && isValidHttpOrHttpsUrl(ticketingLinkUrl) && (
-                      <a href={ticketingLinkUrl.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link"><ExternalLink className="h-4 w-4" /></a>
-                    )}
-                  </div>,
+                  <SystemLinkField label="Pre-Sale Ticketing Link" value={ticketingLinkUrl}
+                    onChange={(value) => { markTicketingUserEdited(); setTicketingLinkUrl(value); }} disabled={disabled} />,
                 )}
                 {fieldRow('Public Sale Ticketing Link',
-                  <div className="flex items-center gap-1.5">
-                    <input className={`${inputCls} flex-1`} type="url" autoComplete="nope" placeholder="https://…" value={publicSaleLinkUrl}
-                      onChange={(e) => { markTicketingUserEdited(); setPublicSaleLinkUrl(e.target.value); }} disabled={disabled} />
-                    {publicSaleLinkUrl.trim() && isValidHttpOrHttpsUrl(publicSaleLinkUrl) && (
-                      <a href={publicSaleLinkUrl.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link"><ExternalLink className="h-4 w-4" /></a>
-                    )}
-                  </div>,
+                  <SystemLinkField label="Public Sale Ticketing Link" value={publicSaleLinkUrl}
+                    onChange={(value) => { markTicketingUserEdited(); setPublicSaleLinkUrl(value); }} disabled={disabled} />,
                 )}
               </div>
             </div>
@@ -10115,22 +10015,12 @@ function EngagementTicketingPanel({
               {sectionHeader('Complimentary Ticket Request')}
               <div className="grid grid-cols-1 gap-4">
                 {fieldRow('Complimentary Ticket Request Form',
-                  <div className="flex items-center gap-1.5">
-                    <input className={`${inputCls} flex-1`} type="url" autoComplete="nope" placeholder="https://…" value={compTicketForm}
-                      onChange={(e) => { markTicketingUserEdited(); setCompTicketForm(e.target.value); }} disabled={disabled} />
-                    {compTicketForm.trim() && isValidHttpOrHttpsUrl(compTicketForm) && (
-                      <a href={compTicketForm.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link"><ExternalLink className="h-4 w-4" /></a>
-                    )}
-                  </div>,
+                  <SystemLinkField label="Complimentary Ticket Request Form" value={compTicketForm}
+                    onChange={(value) => { markTicketingUserEdited(); setCompTicketForm(value); }} disabled={disabled} />,
                 )}
                 {fieldRow('Complimentary Ticket Request Submissions',
-                  <div className="flex items-center gap-1.5">
-                    <input className={`${inputCls} flex-1`} type="url" autoComplete="nope" placeholder="https://…" value={compTicketExcelSheet}
-                      onChange={(e) => { markTicketingUserEdited(); setCompTicketExcelSheet(e.target.value); }} disabled={disabled} />
-                    {compTicketExcelSheet.trim() && isValidHttpOrHttpsUrl(compTicketExcelSheet) && (
-                      <a href={compTicketExcelSheet.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link"><ExternalLink className="h-4 w-4" /></a>
-                    )}
-                  </div>,
+                  <SystemLinkField label="Complimentary Ticket Request Submissions" value={compTicketExcelSheet} accept=".xls,.xlsx"
+                    onChange={(value) => { markTicketingUserEdited(); setCompTicketExcelSheet(value); }} disabled={disabled} />,
                 )}
               </div>
               <div className="flex justify-end pt-2 border-t border-border">

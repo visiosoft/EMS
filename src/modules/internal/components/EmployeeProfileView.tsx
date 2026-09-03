@@ -25,6 +25,7 @@ import type {
   SelfProfileInsuranceElection,
   UpdateMyProfilePayload,
 } from "@/api/selfProfileApi";
+import { SystemLinkField } from "@/components/ems/SystemLinkField";
 import {
   updateMyProfile,
   updateEmployeeProfile,
@@ -1238,18 +1239,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                 </div>
                 {canEditAdminFields && <Field label="Work Authorization" value={textOrDash(profile.employment.workAuthorization)} />}
                 {canEditAdminFields && (
-                <div>
-                  <label className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
-                    Work Authorization Photos
-                  </label>
-                  <input
-                    type="url"
-                    placeholder="https://…"
-                    className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-900 shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500"
-                    value={workAuthLinkUrl}
-                    onChange={(e) => setWorkAuthLinkUrl(e.target.value)}
-                  />
-                </div>
+                <SystemLinkField label="Work Authorization Photos" value={workAuthLinkUrl} onChange={setWorkAuthLinkUrl} accept=".jpg,.jpeg,.png,.webp,.pdf" />
                 )}
                 <Field
                   label="Department"

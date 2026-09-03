@@ -7,6 +7,7 @@ import {
   saveEngagementVipPdf,
   type ApiEngagementVipPdf,
 } from '@/api/tourProfileFilesApi';
+import { extractLinkDisplayName, withLinkDisplayName } from '@/lib/linkDisplayName';
 import {
   isSharePointPickerConfigured,
   pickSharePointFile,
@@ -41,6 +42,7 @@ export function EngagementVipPdfField({ engagementId, addToast }: Props) {
   const [url, setUrl] = useState('');
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [picking, setPicking] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
 
   useEffect(() => {
     if (!query.data) return;
@@ -190,29 +192,40 @@ export function EngagementVipPdfField({ engagementId, addToast }: Props) {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-[1fr_2fr_auto] gap-2">
-          <input
-            type="text"
-            className={inputCls + ' cursor-not-allowed bg-elevated/60'}
-            value={name || 'VIP PDF'}
-            readOnly
-            tabIndex={-1}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr_auto] gap-2">
+          <div
+            className={inputCls + ' cursor-not-allowed bg-elevated/60 truncate min-w-0'}
+            role="textbox"
+            aria-readonly="true"
             aria-label="Display name (auto-filled)"
-            title="Auto-filled; not editable."
-          />
+            title={name || 'VIP PDF'}
+          >
+            {name || 'VIP PDF'}
+          </div>
           <input
             type="text"
-            className={inputCls}
-            value={pendingFile ? pendingFile.name : url}
+            className={inputCls + ' min-w-0'}
+            value={
+              pendingFile
+                ? pendingFile.name
+                : !url
+                  ? ''
+                  : isFocused
+                    ? url
+                    : extractLinkDisplayName(url)
+            }
             onChange={(e) => {
               setUrl(e.target.value);
               setName('VIP PDF');
               setPendingFile(null);
             }}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
             placeholder="https://… or upload a file"
             disabled={save.isPending || !!pendingFile}
+            title={url || undefined}
           />
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 shrink-0">
             <label
               className="inline-flex items-center rounded-md border border-border px-2 py-2 text-xs text-text-secondary hover:text-text-primary hover:bg-elevated cursor-pointer disabled:opacity-50"
               title="Upload file from your computer"
@@ -247,7 +260,7 @@ export function EngagementVipPdfField({ engagementId, addToast }: Props) {
                       ],
                     });
                     if (picked) {
-                      setUrl(picked.webUrl);
+                      setUrl(withLinkDisplayName(picked.webUrl, picked.name));
                       setName('VIP PDF');
                       setPendingFile(null);
                     }

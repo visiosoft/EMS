@@ -17,6 +17,7 @@ import { friendlyApiError } from '@/lib/friendlyApiError';
 import { toDepartmentTags } from '@/lib/departmentTags';
 import { getActiveAccount, getAccountEmail } from '@/auth/entra';
 import { INTERNAL_ROOT } from '@/routing/paths';
+import { SystemLinkField } from './SystemLinkField';
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -278,17 +279,11 @@ function EditableLinkField({ label, value, onSave }: { label: string; value: str
   useEffect(() => { setDraft(value); }, [value]);
   return (
     <div className="space-y-1">
-      <label className="text-xs font-medium text-text-muted">{label}</label>
+      {/* SystemLinkField renders its own label while editing — avoid showing it twice. */}
+      {!editing && <label className="text-xs font-medium text-text-muted">{label}</label>}
       {editing ? (
-        <div className="flex items-center gap-1">
-          <input
-            type="url"
-            className="flex-1 rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:border-ems-accent focus:outline-none"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="https://..."
-            autoFocus
-          />
+        <div className="space-y-2">
+          <SystemLinkField label={label} value={draft} onChange={setDraft} />
           <button
             className="rounded px-2 py-1.5 text-xs font-medium bg-ems-accent text-white hover:bg-ems-accent/90"
             onClick={() => { onSave(draft); setEditing(false); }}

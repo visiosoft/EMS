@@ -1,5 +1,6 @@
 import { Cloud, ExternalLink, Loader2, Trash2, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
+import { deriveLinkFieldName, extractLinkDisplayName, withLinkDisplayName } from '@/lib/linkDisplayName';
 import {
   isSharePointPickerConfigured,
   pickSharePointFile,
@@ -53,9 +54,10 @@ export function LinkOrUploadField({
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [picking, setPicking] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
   const spConfigured = isSharePointPickerConfigured();
-  // Display name always tracks the field label — never the uploaded file name.
-  const autoName = value.name ?? label;
+  // The visible field label can be verbose (e.g. "Link to PDF of X") — show the short form as the link name.
+  const autoName = value.name ?? deriveLinkFieldName(label);
   const hasAny =
     !!(value.url && value.url.trim().length > 0) || value.pendingFile != null;
 
@@ -71,7 +73,7 @@ export function LinkOrUploadField({
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-ems-accent hover:text-ems-accent/80 hover:underline"
             >
-              {value.name || label}
+              {value.name || deriveLinkFieldName(label)}
               <ExternalLink className="h-3.5 w-3.5" />
             </a>
           </div>
@@ -90,33 +92,44 @@ export function LinkOrUploadField({
       <label className="block text-xs font-medium text-text-secondary">
         {label}
       </label>
-      <div className="grid grid-cols-1 sm:grid-cols-[1fr_2fr_auto] gap-2">
-        <input
-          type="text"
-          className={inputCls + ' cursor-not-allowed bg-elevated/60'}
-          value={autoName}
-          readOnly
-          tabIndex={-1}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr_auto] gap-2">
+        <div
+          className={inputCls + ' cursor-not-allowed bg-elevated/60 truncate min-w-0'}
+          role="textbox"
+          aria-readonly="true"
           aria-label="Display name (auto-filled)"
-          title="Auto-filled from the field label; not editable."
-        />
+          title={autoName}
+        >
+          {autoName}
+        </div>
         <input
           type="text"
-          className={inputCls}
-          value={value.pendingFile ? value.pendingFile.name : value.url ?? ''}
+          className={inputCls + ' min-w-0'}
+          value={
+            value.pendingFile
+              ? value.pendingFile.name
+              : !value.url
+                ? ''
+                : isFocused
+                  ? value.url
+                  : extractLinkDisplayName(value.url)
+          }
           onChange={(e) =>
             onChange({
               ...value,
               url: e.target.value,
               /** Keep name in sync with the label so backend stores a clean name. */
-              name: label,
+              name: deriveLinkFieldName(label),
               pendingFile: null,
             })
           }
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
           placeholder={placeholder ?? 'https://…'}
           disabled={disabled || !!value.pendingFile}
+          title={value.url ?? undefined}
         />
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0">
           <input
             ref={fileRef}
             type="file"
@@ -126,7 +139,7 @@ export function LinkOrUploadField({
             onChange={(e) => {
               const f = e.target.files?.[0] ?? null;
               if (f) {
-                onChange({ ...value, pendingFile: f, url: null, name: label });
+                onChange({ ...value, pendingFile: f, url: null, name: deriveLinkFieldName(label) });
               }
               e.currentTarget.value = '';
             }}
@@ -155,8 +168,8 @@ export function LinkOrUploadField({
                   if (picked) {
                     onChange({
                       ...value,
-                      url: picked.webUrl,
-                      name: label,
+                      url: withLinkDisplayName(picked.webUrl, picked.name),
+                      name: deriveLinkFieldName(label),
                       pendingFile: null,
                     });
                   }

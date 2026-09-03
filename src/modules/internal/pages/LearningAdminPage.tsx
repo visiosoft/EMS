@@ -25,6 +25,7 @@ import {
   type LearningPlatform,
   type LearningDepartment,
 } from "@/api/learningApi";
+import { SystemLinkField } from "@/components/ems/SystemLinkField";
 
 export function LearningAdminPage() {
   const { viewData, navigate } = useInternalNavigation();
@@ -596,10 +597,11 @@ export function LearningAdminPage() {
                       <input type="text" value={formDuration} onChange={(e) => setFormDuration(e.target.value)} placeholder="e.g. 40 hrs / 6 months" className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black placeholder:text-neutral-300" />
                     </div>
                   </div>
-                  <div>
-                    <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-neutral-700">External Course URL *</label>
-                    <input type="url" required value={formUrl} onChange={(e) => setFormUrl(e.target.value)} placeholder="https://..." className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black placeholder:text-neutral-300" />
-                  </div>
+                  <SystemLinkField
+                    label="External Course URL *"
+                    value={formUrl}
+                    onChange={setFormUrl}
+                  />
                   <div>
                     <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-neutral-700">Short Description</label>
                     <textarea value={formDescription} onChange={(e) => setFormDescription(e.target.value)} placeholder="A brief description..." className="h-20 w-full rounded-md border border-neutral-300 p-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black placeholder:text-neutral-300" />
@@ -1006,10 +1008,11 @@ export function LearningAdminPage() {
                   <input type="text" value={editDuration} onChange={(e) => setEditDuration(e.target.value)} placeholder="e.g. 40 hrs / 6 months" className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black placeholder:text-neutral-300" />
                 </div>
               </div>
-              <div>
-                <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-neutral-700">External Course URL *</label>
-                <input type="url" required value={editUrl} onChange={(e) => setEditUrl(e.target.value)} className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black" />
-              </div>
+              <SystemLinkField
+                label="External Course URL *"
+                value={editUrl}
+                onChange={setEditUrl}
+              />
               <div>
                 <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-neutral-700">Short Description</label>
                 <textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} className="h-20 w-full rounded-md border border-neutral-300 p-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black placeholder:text-neutral-300" />

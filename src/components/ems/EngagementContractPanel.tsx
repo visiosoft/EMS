@@ -4,6 +4,7 @@ import { Loader2, Upload, ExternalLink, Trash2, Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FormField } from './Primitives';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import { SystemLinkField } from './SystemLinkField';
 import {
   fetchPerformanceContracts,
   uploadContractPdf,
@@ -562,17 +563,12 @@ export function EngagementContractPanel({
           </div>
         </FormField>
 
-        {/* OneDrive PDF URL */}
-        <FormField label="OneDrive PDF URL">
-          <div className="flex items-center gap-2">
-            <input type="text" className={inputCls} value={form.oneDrivePdfUrl} onChange={set('oneDrivePdfUrl')} placeholder="https://…" disabled={saveMutation.isPending} />
-            {form.oneDrivePdfUrl && (
-              <a href={form.oneDrivePdfUrl} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80">
-                <ExternalLink className="h-4 w-4" />
-              </a>
-            )}
-          </div>
-        </FormField>
+        <SystemLinkField
+          label="OneDrive PDF URL"
+          value={form.oneDrivePdfUrl}
+          onChange={(oneDrivePdfUrl) => setForm((previous) => ({ ...previous, oneDrivePdfUrl }))}
+          disabled={saveMutation.isPending}
+        />
 
         {/* File metadata (read-only info) */}
         {form.originalFilename && (

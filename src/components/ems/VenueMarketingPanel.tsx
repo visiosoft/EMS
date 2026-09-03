@@ -18,6 +18,7 @@ import {
   type SaveVenueMarketingPayload,
 } from '@/api/venueMarketingApi';
 import type { Select2Option } from './Select2';
+import { SystemLinkField } from './SystemLinkField';
 
 // Options that reveal a custom text input when selected
 const LOCALIZATION_CUSTOM_VALUE_OPTIONS = new Set(['Button', 'Tag']);
@@ -468,10 +469,13 @@ export function VenueMarketingPanel({ venueCompanyId, addToast }: Props) {
                 <label className="block text-xs font-medium text-text-muted mb-1">Accent Colors</label>
                 <input className={inputCls} value={accentColors} onChange={(e) => { setAccentColors(e.target.value); markDirty(); }} disabled={saveMut.isPending} />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-text-muted mb-1">Logo (Link)</label>
-                <input className={inputCls} type="url" value={logoUrl} onChange={(e) => { setLogoUrl(e.target.value); markDirty(); }} disabled={saveMut.isPending} placeholder="https://…" />
-              </div>
+              <SystemLinkField
+                label="Logo (Link)"
+                value={logoUrl}
+                onChange={(value) => { setLogoUrl(value); markDirty(); }}
+                disabled={saveMut.isPending}
+                accept=".jpg,.jpeg,.png,.webp"
+              />
             </div>
             <div>
               <label className="block text-xs font-medium text-text-muted mb-1">Notes</label>
