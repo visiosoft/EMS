@@ -11867,8 +11867,8 @@ export function EngagementDetailPage({
         },
       });
       // Also invalidate venue-level engagement lists so the Companies → Venues tab stays in sync.
-      // Use removeQueries so the data is fully cleared — invalidateQueries alone won't refetch
-      // because the global QueryClient has refetchOnMount: false.
+      // removeQueries (not invalidate) so a deleted engagement cannot be rendered from cache
+      // for the frame before the refetch lands.
       qc.removeQueries({
         predicate: (query) => query.queryKey[0] === 'companies' && query.queryKey[2] === 'engagements',
       });

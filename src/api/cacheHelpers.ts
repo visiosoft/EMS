@@ -7,10 +7,10 @@ import type { QueryClient, QueryKey } from '@tanstack/react-query';
  * Tours pages all use the same shapes (bare `T[]` or `{ data: T[]; total }`).
  *
  * Why surgical patches instead of invalidate + refetch?
- *   Product requirement: cached lists must only re-fetch every 30 minutes, but
- *   add/update/delete must be reflected in the cache IMMEDIATELY without a
- *   full list refetch. `setQueryData` lets us splice one row while keeping
- *   `staleTime` intact; `invalidateQueries` / `refetchQueries` would undo that.
+ *   They update the visible row instantly, with no flash of the old value while
+ *   the background refetch runs. The refetch still happens: `apiFetch` marks the
+ *   cache stale after every successful write (see `api/queryClient.ts`), so the
+ *   patched value is confirmed against the server shortly after.
  */
 
 type PaginatedLike<T> = { data: T[]; total: number };

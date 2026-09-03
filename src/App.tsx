@@ -1,6 +1,6 @@
 // Deploy trigger: 2026-07-22
 import { initializeIcons } from "@fluentui/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 
 initializeIcons();
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
@@ -18,26 +18,11 @@ import EntraUsersJsonPage from "./pages/EntraUsersJsonPage.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { getActiveAccount, isMsalBusy } from "./auth/entra.ts";
 import { isEmsEnabled, isInternalEnabled } from "./routing/appSuite.ts";
+import { queryClient } from "./api/queryClient.ts";
 import { APP_CHOOSER_PATH, EMS_ROOT, INTERNAL_ROOT, LOGIN_PATH } from "./routing/paths.ts";
 import "./contact-polish.css";
 import "./project-venue-status-default.ts";
 import PoweredByWatermark from "./components/PoweredByWatermark";
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30 * 60 * 1000,
-      gcTime: 60 * 60 * 1000,
-      refetchOnMount: false,
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
-      retry: 1,
-    },
-    mutations: {
-      retry: 0,
-    },
-  },
-});
 
 function LoadingAuthState() {
   return (
