@@ -18,6 +18,7 @@ let SettlementFinance = class SettlementFinance {
     subscriptionSalesRevenueTotal;
     seasonTicketSalesByIae;
     seasonTicketFundsTransferred;
+    totalRevenue;
     netBoxOfficeFundsDepositedAccount;
     hstCollectedFromTicketSales;
     hstPaidOnTourPayments;
@@ -30,6 +31,8 @@ let SettlementFinance = class SettlementFinance {
     finalRoyaltyAmount;
     finalOverageAmount;
     finalBuyoutAmount;
+    finalOtherAmount;
+    finalConcessionsAmount;
     directCompanyCharges;
     reimbursables;
 };
@@ -86,6 +89,16 @@ __decorate([
     }),
     __metadata("design:type", Object)
 ], SettlementFinance.prototype, "seasonTicketFundsTransferred", void 0);
+__decorate([
+    (0, typeorm_1.Column)({
+        name: 'TotalRevenue',
+        type: 'decimal',
+        precision: 18,
+        scale: 2,
+        nullable: true,
+    }),
+    __metadata("design:type", Object)
+], SettlementFinance.prototype, "totalRevenue", void 0);
 __decorate([
     (0, typeorm_1.Column)({
         name: 'NetBoxOfficeFundsDepositedAccount',
@@ -204,6 +217,26 @@ __decorate([
     }),
     __metadata("design:type", Object)
 ], SettlementFinance.prototype, "finalBuyoutAmount", void 0);
+__decorate([
+    (0, typeorm_1.Column)({
+        name: 'FinalOtherAmount',
+        type: 'decimal',
+        precision: 18,
+        scale: 2,
+        nullable: true,
+    }),
+    __metadata("design:type", Object)
+], SettlementFinance.prototype, "finalOtherAmount", void 0);
+__decorate([
+    (0, typeorm_1.Column)({
+        name: 'FinalConcessionsAmount',
+        type: 'decimal',
+        precision: 18,
+        scale: 2,
+        nullable: true,
+    }),
+    __metadata("design:type", Object)
+], SettlementFinance.prototype, "finalConcessionsAmount", void 0);
 __decorate([
     (0, typeorm_1.Column)({
         name: 'DirectCompanyCharges',

@@ -1,6 +1,11 @@
 import { ConfigService } from '@nestjs/config';
+export interface RawPerformanceItem {
+    date: string;
+    time: string;
+    formatted: string;
+}
 export interface RawExtractedField {
-    value: string;
+    value: string | RawPerformanceItem[] | string[];
     confidence: number;
     sourceQuote: string;
     sourcePage: number;
@@ -20,5 +25,6 @@ export declare class ContractLlmClient {
     extractFromPdf(pdfBase64: string, precedenceInstruction?: string): Promise<RawExtraction>;
     private run;
     private buildSystemPrompt;
+    private buildValueSchema;
     private buildToolSchema;
 }

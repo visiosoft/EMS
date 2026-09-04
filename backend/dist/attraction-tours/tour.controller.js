@@ -36,6 +36,9 @@ let TourController = class TourController {
     create(dto, bannerImage) {
         return this.tourService.create(dto, bannerImage);
     }
+    listProjectsByTour(id) {
+        return this.tourService.listProjectsByTour(id);
+    }
     update(id, dto, bannerImage) {
         return this.tourService.update(id, dto, bannerImage);
     }
@@ -76,6 +79,13 @@ __decorate([
     __metadata("design:paramtypes", [create_tour_dto_1.CreateTourDto, Object]),
     __metadata("design:returntype", void 0)
 ], TourController.prototype, "create", null);
+__decorate([
+    (0, common_1.Get)(':id/projects'),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number]),
+    __metadata("design:returntype", void 0)
+], TourController.prototype, "listProjectsByTour", null);
 __decorate([
     (0, common_1.Patch)(':id'),
     (0, common_1.UseInterceptors)((0, platform_express_1.FileInterceptor)('bannerImage', (0, tour_banner_multer_config_1.tourBannerMulterOptions)())),

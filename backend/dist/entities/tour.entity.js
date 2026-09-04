@@ -39,6 +39,22 @@ let Tour = class Tour extends audit_columns_1.AuditColumns {
     class;
     techRiderLinkId;
     bannerLinkId;
+    dealSheetLinkId;
+    agencySalesLinkId;
+    marketingManualLinkId;
+    marketingMaterialLinkId;
+    vipPdfLinkId;
+    stagehandListLinkId;
+    linesetScheduleLinkId;
+    cateringRiderLinkId;
+    stageDimensionsLinkId;
+    travelRequirementsLinkId;
+    soundRequirementsLinkId;
+    videoRequirementsLinkId;
+    lightingRequirementsLinkId;
+    heavyEquipmentRequirementsLinkId;
+    bookingDocumentTypes;
+    seatHoldRequirements;
     venueTypePreferenceId;
     venueTypePreference;
     tourStartDate;
@@ -149,6 +165,70 @@ __decorate([
     (0, typeorm_1.Column)({ name: 'BannerLinkID', type: 'int', nullable: true }),
     __metadata("design:type", Object)
 ], Tour.prototype, "bannerLinkId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'DealSheetLinkID', type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], Tour.prototype, "dealSheetLinkId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'AgencySalesLinkID', type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], Tour.prototype, "agencySalesLinkId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'MarketingManualLinkID', type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], Tour.prototype, "marketingManualLinkId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'MarketingMaterialLinkID', type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], Tour.prototype, "marketingMaterialLinkId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'VipPdfLinkID', type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], Tour.prototype, "vipPdfLinkId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'StagehandListLinkID', type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], Tour.prototype, "stagehandListLinkId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'LinesetScheduleLinkID', type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], Tour.prototype, "linesetScheduleLinkId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'CateringRiderLinkID', type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], Tour.prototype, "cateringRiderLinkId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'StageDimensionsLinkID', type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], Tour.prototype, "stageDimensionsLinkId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'TravelRequirementsLinkID', type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], Tour.prototype, "travelRequirementsLinkId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'SoundRequirementsLinkID', type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], Tour.prototype, "soundRequirementsLinkId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'VideoRequirementsLinkID', type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], Tour.prototype, "videoRequirementsLinkId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'LightingRequirementsLinkID', type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], Tour.prototype, "lightingRequirementsLinkId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'HeavyEquipmentRequirementsLinkID', type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], Tour.prototype, "heavyEquipmentRequirementsLinkId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'BookingDocumentTypes', type: 'nvarchar', nullable: true }),
+    __metadata("design:type", Object)
+], Tour.prototype, "bookingDocumentTypes", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'SeatHoldRequirements', type: 'nvarchar', length: 500, nullable: true }),
+    __metadata("design:type", Object)
+], Tour.prototype, "seatHoldRequirements", void 0);
 __decorate([
     (0, typeorm_1.Column)({ name: 'VenueTypePreferenceID', type: 'int', nullable: true }),
     __metadata("design:type", Object)

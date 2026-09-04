@@ -33,7 +33,7 @@ __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.IsNotEmpty)(),
-    (0, class_validator_1.MaxLength)(200),
+    (0, class_validator_1.MaxLength)(1000),
     __metadata("design:type", String)
 ], UpdateCompanyDto.prototype, "companyName", void 0);
 __decorate([

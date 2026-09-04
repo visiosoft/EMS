@@ -9,15 +9,42 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.UpdateManagedContactDto = exports.ManageContactDto = void 0;
+exports.UpdateManagedContactDto = exports.ManageContactDto = exports.ContactCompanyAssignmentDto = void 0;
 const class_transformer_1 = require("class-transformer");
 const class_validator_1 = require("class-validator");
+class ContactCompanyAssignmentDto {
+    companyId;
+    roleIds;
+    departmentIds;
+}
+exports.ContactCompanyAssignmentDto = ContactCompanyAssignmentDto;
+__decorate([
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    __metadata("design:type", Number)
+], ContactCompanyAssignmentDto.prototype, "companyId", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)({ each: true }),
+    (0, class_validator_1.Min)(1, { each: true }),
+    __metadata("design:type", Array)
+], ContactCompanyAssignmentDto.prototype, "roleIds", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)({ each: true }),
+    (0, class_validator_1.Min)(1, { each: true }),
+    __metadata("design:type", Array)
+], ContactCompanyAssignmentDto.prototype, "departmentIds", void 0);
 class ManageContactDto {
     firstName;
     lastName;
     email;
     cellPhone;
     workPhone;
+    assignments;
     companyId;
     roleIds;
     departmentIds;
@@ -54,6 +81,13 @@ __decorate([
 ], ManageContactDto.prototype, "workPhone", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => ContactCompanyAssignmentDto),
+    __metadata("design:type", Array)
+], ManageContactDto.prototype, "assignments", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
     (0, class_transformer_1.Type)(() => Number),
     (0, class_validator_1.IsInt)(),
     (0, class_validator_1.Min)(1),
@@ -81,6 +115,7 @@ class UpdateManagedContactDto {
     email;
     cellPhone;
     workPhone;
+    assignments;
     companyId;
     roleIds;
     departmentIds;
@@ -118,6 +153,13 @@ __decorate([
     (0, class_validator_1.MaxLength)(30),
     __metadata("design:type", Object)
 ], UpdateManagedContactDto.prototype, "workPhone", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => ContactCompanyAssignmentDto),
+    __metadata("design:type", Array)
+], UpdateManagedContactDto.prototype, "assignments", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_transformer_1.Type)(() => Number),

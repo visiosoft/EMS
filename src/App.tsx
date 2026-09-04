@@ -23,6 +23,7 @@ import { APP_CHOOSER_PATH, EMS_ROOT, INTERNAL_ROOT, LOGIN_PATH } from "./routing
 import "./contact-polish.css";
 import "./project-venue-status-default.ts";
 import PoweredByWatermark from "./components/PoweredByWatermark";
+import { AskAiSlider } from "./components/ai/AskAiSlider";
 
 function LoadingAuthState() {
   return (
@@ -47,6 +48,14 @@ function ProtectedRoute({ children }: { children: JSX.Element }) {
   return children;
 }
 
+function AuthenticatedAskAi() {
+  const isAuthenticated = useIsAuthenticated();
+  const { accounts } = useMsal();
+  const account = getActiveAccount() ?? accounts[0] ?? null;
+  if (!isAuthenticated && !account) return null;
+  return <AskAiSlider />;
+}
+
 const App = () => (
   <ThemeProvider
     attribute="data-theme"
@@ -61,73 +70,74 @@ const App = () => (
         <BrowserRouter>
           <ErrorBoundary>
             <div className="flex min-h-[100dvh] flex-1 flex-col">
-            <Routes>
-              <Route path={LOGIN_PATH} element={<Login />} />
+              <Routes>
+                <Route path={LOGIN_PATH} element={<Login />} />
 
-              {isEmsEnabled() && isInternalEnabled() ? (
-                <Route
-                  path={APP_CHOOSER_PATH}
-                  element={
-                    <ProtectedRoute>
-                      <AppChooser />
-                    </ProtectedRoute>
-                  }
-                />
-              ) : null}
-
-              {isInternalEnabled() ? (
-                <Route
-                  path={`${INTERNAL_ROOT}/*`}
-                  element={
-                    <ProtectedRoute>
-                      <InternalApp />
-                    </ProtectedRoute>
-                  }
-                />
-              ) : null}
-
-              {isEmsEnabled() ? (
-                <>
+                {isEmsEnabled() && isInternalEnabled() ? (
                   <Route
-                    path="/entra-users-json"
+                    path={APP_CHOOSER_PATH}
                     element={
                       <ProtectedRoute>
-                        <EntraUsersJsonPage />
+                        <AppChooser />
                       </ProtectedRoute>
                     }
                   />
-                  <Route
-                    path={EMS_ROOT}
-                    element={
-                      <ProtectedRoute>
-                        <Index />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/engagements"
-                    element={
-                      <ProtectedRoute>
-                        <Index />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/engagements/create"
-                    element={
-                      <ProtectedRoute>
-                        <Index />
-                      </ProtectedRoute>
-                    }
-                  />
-                </>
-              ) : (
-                <Route path={EMS_ROOT} element={<Navigate to={INTERNAL_ROOT} replace />} />
-              )}
+                ) : null}
 
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-            <PoweredByWatermark />
+                {isInternalEnabled() ? (
+                  <Route
+                    path={`${INTERNAL_ROOT}/*`}
+                    element={
+                      <ProtectedRoute>
+                        <InternalApp />
+                      </ProtectedRoute>
+                    }
+                  />
+                ) : null}
+
+                {isEmsEnabled() ? (
+                  <>
+                    <Route
+                      path="/entra-users-json"
+                      element={
+                        <ProtectedRoute>
+                          <EntraUsersJsonPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path={EMS_ROOT}
+                      element={
+                        <ProtectedRoute>
+                          <Index />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/engagements"
+                      element={
+                        <ProtectedRoute>
+                          <Index />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/engagements/create"
+                      element={
+                        <ProtectedRoute>
+                          <Index />
+                        </ProtectedRoute>
+                      }
+                    />
+                  </>
+                ) : (
+                  <Route path={EMS_ROOT} element={<Navigate to={INTERNAL_ROOT} replace />} />
+                )}
+
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+              <AuthenticatedAskAi />
+              <PoweredByWatermark />
             </div>
           </ErrorBoundary>
         </BrowserRouter>

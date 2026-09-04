@@ -36,8 +36,6 @@ export declare class ProjectController {
             attractionName: string | null;
             talentAgencyCompanyId: number | null;
             talentAgencyCompanyName: string | null;
-            projectStage: string;
-            offerReviewStatus: string | null;
             createdDate: Date;
             createdBy: string | null;
             name: null;
@@ -80,7 +78,19 @@ export declare class ProjectController {
             venueName: string | null;
             venueDmaId: number | null;
             venueDmaMarketName: string | null;
+            venueCity: string | null;
+            venueStateProvince: string | null;
+            venueSeatingCapacity: number | null;
+            venueEntertainmentComplexNames: string | null;
             venueStatus: string;
+            offerCreationStatus: string;
+            offerReviewStatus: string | null;
+            confirmedOfferLinkId: number | null;
+            confirmedOfferLinkName: string | null;
+            draftedOfferLinkId: number | null;
+            draftedOfferLinkName: string | null;
+            inConsiderationOfferLinkId: number | null;
+            inConsiderationOfferLinkName: string | null;
             configName: null;
             dealType: null;
             guarantee: null;
@@ -111,16 +121,29 @@ export declare class ProjectController {
     addVenue(id: number, dto: AddProjectVenueDto): Promise<{
         engagementProjectVenueId: number;
     }>;
-    updateVenue(id: number, venueId: number, dto: UpdateProjectVenueDto): Promise<void>;
+    updateVenue(id: number, venueId: number, dto: UpdateProjectVenueDto): Promise<{
+        engagementId: number | null;
+        converted: boolean;
+    }>;
     removeVenue(id: number, venueId: number): Promise<void>;
     addPerformanceOption(id: number, dto: AddPerformanceOptionDto): Promise<{
         performanceOptionId: number;
     }>;
     updatePerformanceOption(id: number, optionId: number, dto: UpdatePerformanceOptionDto): Promise<void>;
     removePerformanceOption(id: number, optionId: number): Promise<void>;
-    uploadConfirmedOfferPdf(id: number, file: Express.Multer.File): Promise<{
+    uploadConfirmedOfferPdf(id: number, venueId: number, file: Express.Multer.File): Promise<{
         linkId: number;
         linkName: string;
     }>;
-    downloadConfirmedOfferPdf(id: number, res: Response): Promise<StreamableFile>;
+    downloadConfirmedOfferPdf(id: number, venueId: number, res: Response): Promise<StreamableFile>;
+    uploadDraftedOfferLink(id: number, venueId: number, file: Express.Multer.File): Promise<{
+        linkId: number;
+        linkName: string;
+    }>;
+    downloadDraftedOfferLink(id: number, venueId: number, res: Response): Promise<StreamableFile>;
+    uploadInConsiderationOfferLink(id: number, venueId: number, file: Express.Multer.File): Promise<{
+        linkId: number;
+        linkName: string;
+    }>;
+    downloadInConsiderationOfferLink(id: number, venueId: number, res: Response): Promise<StreamableFile>;
 }

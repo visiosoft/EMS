@@ -15,4 +15,5 @@ export declare class UpdateCompanyContactDto {
     workPhone?: string | null;
     roleId?: number;
     departmentId?: number;
+    companyId?: number;
 }

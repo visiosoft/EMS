@@ -22,6 +22,25 @@ export declare class LookupsController {
         physicalStateProvince: string | null;
         dmaMarketName: string | null;
     }[]>;
+    departmentRoles(): Promise<{
+        departmentRoleId: number;
+        departmentId: number;
+        roleId: number;
+        departmentName: string;
+        roleName: string;
+    }[]>;
+    departmentRoleContactUsage(departmentId: number): Promise<{
+        firstName: string;
+        lastName: string;
+        email: string;
+        roleName: string;
+        companyName: string;
+        source: string;
+    }[]>;
+    companyTypeServiceUsage(companyTypeId: number): Promise<{
+        companyName: string;
+        serviceName: string;
+    }[]>;
     nonResidentWithholdings(): Promise<{
         withholdingId: number;
         withholdingTaxRate: string;
@@ -35,7 +54,12 @@ export declare class LookupsController {
         marketName: string;
         postalCode: string;
     }[]>;
-    dmaMarkets(offset: number, limit: number, query?: string): Promise<{
+    dmaMarketsByCity(query?: string, limit?: string): Promise<{
+        dmaid: number;
+        marketName: string;
+        postalCode: string;
+    }[]>;
+    dmaMarkets(offset: number, limit: number, query?: string, enriched?: string): Promise<{
         data: {
             dmaid: number;
             marketName: string;
@@ -57,6 +81,17 @@ export declare class LookupsController {
         services: {
             serviceProvidedId: number;
             serviceName: string;
+        }[];
+    } | {
+        departmentRoleId: number;
+        departmentId: number;
+        departmentName: string;
+        roleIds: number[];
+        roleNames: string[];
+        roleName: string;
+        roles: {
+            roleId: number;
+            roleName: string;
         }[];
     } | {
         companyServiceId: number;
@@ -299,6 +334,17 @@ export declare class LookupsController {
         services: {
             serviceProvidedId: number;
             serviceName: string;
+        }[];
+    } | {
+        departmentRoleId: number;
+        departmentId: number;
+        departmentName: string;
+        roleIds: number[];
+        roleNames: string[];
+        roleName: string;
+        roles: {
+            roleId: number;
+            roleName: string;
         }[];
     } | {
         companyServiceId: number;

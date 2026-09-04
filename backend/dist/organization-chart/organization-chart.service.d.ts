@@ -10,9 +10,12 @@ export type OrganizationChartMember = {
     email: string;
     cellPhone: string;
     workPhone: string;
+    extension: string;
     jobTitle: string;
     roleName: string;
     departmentName: string;
+    department2: string;
+    departmentRank: number | null;
 };
 export type OrganizationChartNode = {
     nodeId: number;
@@ -40,6 +43,7 @@ export type HierarchyMember = {
     email: string;
     cellPhone: string;
     workPhone: string;
+    extension: string;
     jobTitle: string;
     roleName: string;
     departmentName: string;
@@ -75,11 +79,13 @@ export declare class OrganizationChartService {
     constructor(dataSource: DataSource, auditContext: AuditRequestContext);
     getHierarchicalChart(graphAccessToken?: string): Promise<OrganizationChartHierarchyResponse>;
     private resolveGraphToken;
+    private overlayEntraJobTitles;
     private fetchEntraUsersWithManagers;
     private buildHierarchyFromEntra;
     private buildMembersFromRows;
     getChart(): Promise<OrganizationChartResponse>;
     private getInternalCompanies;
+    private hasEmployeeProfileDepartment2Column;
     private hasContactInfoJobTitleColumn;
     private loadInternalContacts;
     private buildDepartmentNodes;

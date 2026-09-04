@@ -24,6 +24,7 @@ const contact_info_entity_1 = require("../entities/contact-info.entity");
 const contact_entity_1 = require("../entities/contact.entity");
 const role_entity_1 = require("../entities/role.entity");
 const department_entity_1 = require("../entities/department.entity");
+const department_role_entity_1 = require("../entities/department-role.entity");
 class UpdateContactAssignmentBulkDto {
     firstName;
     lastName;
@@ -32,6 +33,7 @@ class UpdateContactAssignmentBulkDto {
     workPhone;
     roleIds;
     departmentIds;
+    companyId;
 }
 __decorate([
     (0, class_validator_1.IsOptional)(),
@@ -81,6 +83,12 @@ __decorate([
     (0, class_validator_1.Min)(1, { each: true }),
     __metadata("design:type", Array)
 ], UpdateContactAssignmentBulkDto.prototype, "departmentIds", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    __metadata("design:type", Number)
+], UpdateContactAssignmentBulkDto.prototype, "companyId", void 0);
 function assertOptionalE164Phone(value, field) {
     if (value == null)
         return;
@@ -145,7 +153,9 @@ let ContactAssignmentBulkUpdateController = class ContactAssignmentBulkUpdateCon
                 throw new common_1.BadRequestException({
                     message: 'One or more selected departments are invalid.',
                 });
-            const companyId = currentAssignment.companyId;
+            const companyId = dto.companyId != null && dto.companyId !== currentAssignment.companyId
+                ? dto.companyId
+                : currentAssignment.companyId;
             const oldContactId = currentAssignment.contactId;
             const oldContactInfoId = currentAssignment.contact.contactInfoId;
             const currentInfo = currentAssignment.contact.contactInfo;
@@ -214,21 +224,54 @@ let ContactAssignmentBulkUpdateController = class ContactAssignmentBulkUpdateCon
                     targetInfo.workPhone = dto.workPhone?.trim() || null;
                 await infoRepo.save(targetInfo);
             }
+            const idsToDelete = [];
             if (targetContactId !== oldContactId) {
-                await assignmentRepo.delete({ companyId, contactId: oldContactId });
+                const oldRows = await assignmentRepo.find({
+                    where: { companyId: currentAssignment.companyId, contactId: oldContactId },
+                    select: ['contactAssignmentId'],
+                });
+                idsToDelete.push(...oldRows.map((r) => r.contactAssignmentId));
             }
-            await assignmentRepo.delete({ companyId, contactId: targetContactId });
+            const targetRows = await assignmentRepo.find({
+                where: { companyId: currentAssignment.companyId, contactId: targetContactId },
+                select: ['contactAssignmentId'],
+            });
+            idsToDelete.push(...targetRows.map((r) => r.contactAssignmentId));
+            if (companyId !== currentAssignment.companyId) {
+                const extraRows = await assignmentRepo.find({
+                    where: { companyId, contactId: targetContactId },
+                    select: ['contactAssignmentId'],
+                });
+                idsToDelete.push(...extraRows.map((r) => r.contactAssignmentId));
+            }
+            for (const id of idsToDelete) {
+                await em.query(`DELETE FROM dbo.EmployeeComputer WHERE ContactAssignmentID = @0`, [id]);
+                await em.query(`DELETE FROM dbo.EmployeeWorkLocation WHERE ContactAssignmentID = @0`, [id]);
+                await em.query(`DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID = @0`, [id]);
+            }
+            if (targetContactId !== oldContactId) {
+                await assignmentRepo.delete({ companyId: currentAssignment.companyId, contactId: oldContactId });
+            }
+            await assignmentRepo.delete({ companyId: currentAssignment.companyId, contactId: targetContactId });
+            if (companyId !== currentAssignment.companyId) {
+                await assignmentRepo.delete({ companyId, contactId: targetContactId });
+            }
+            const validPairs = await em.find(department_role_entity_1.DepartmentRole, {
+                where: { departmentId: (0, typeorm_2.In)(departmentIds), roleId: (0, typeorm_2.In)(roleIds) },
+            });
+            if (validPairs.length === 0)
+                throw new common_1.BadRequestException({
+                    message: 'None of the selected role/department combinations exist in the DepartmentRole mappings.',
+                });
             const createdIds = [];
-            for (const roleId of roleIds) {
-                for (const departmentId of departmentIds) {
-                    const saved = await assignmentRepo.save(assignmentRepo.create({
-                        companyId,
-                        contactId: targetContactId,
-                        roleId,
-                        departmentId,
-                    }));
-                    createdIds.push(saved.contactAssignmentId);
-                }
+            for (const pair of validPairs) {
+                const saved = await assignmentRepo.save(assignmentRepo.create({
+                    companyId,
+                    contactId: targetContactId,
+                    roleId: pair.roleId,
+                    departmentId: pair.departmentId,
+                }));
+                createdIds.push(saved.contactAssignmentId);
             }
             if (targetContactId !== oldContactId) {
                 const remainingForOldContact = await assignmentRepo.count({

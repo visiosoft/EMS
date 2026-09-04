@@ -4,4 +4,7 @@ export declare class EngagementTravel extends AuditColumns {
     engagementId: number;
     travelType: string;
     bookedBy: string | null;
+    iaePays: boolean | null;
+    iaeArranges: boolean | null;
+    budgetAmount: number | null;
 }

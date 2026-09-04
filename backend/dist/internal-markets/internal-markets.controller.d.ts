@@ -5,8 +5,10 @@ export declare class InternalMarketsController {
     suggest(query: string | undefined, limit: number): Promise<{
         dmaid: number;
         marketName: string;
-        samplePostalCode: string;
-        postalCount: number;
+        nielsenMarketName: string | null;
+        nielsenCode: number | null;
+        nielsenRank: number | null;
+        population: number | null;
     }[]>;
     venues(dmaid: number, offset: number, limit: number): Promise<{
         data: import("../venue-directory/venue-directory.service").AllVenueDirectoryRow[];
@@ -16,8 +18,10 @@ export declare class InternalMarketsController {
         data: {
             dmaid: number;
             marketName: string;
-            samplePostalCode: string;
-            postalCount: number;
+            nielsenMarketName: string | null;
+            nielsenCode: number | null;
+            nielsenRank: number | null;
+            population: number | null;
         }[];
         total: number;
     }>;

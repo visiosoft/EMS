@@ -1,5 +1,6 @@
 import { DataSource } from 'typeorm';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
+import { EntraProfileSyncService } from './entra-profile-sync.service';
 export type EmployeePersonalProfileResponse = {
     contactId: number;
     contactInfoId: number;
@@ -7,6 +8,7 @@ export type EmployeePersonalProfileResponse = {
     lastName: string;
     email: string;
     cellPhone: string;
+    workPhone: string;
     middleName: string;
     personalEmail: string;
     birthDate: string | null;
@@ -25,6 +27,9 @@ export type EmployeePersonalProfileResponse = {
     emergencyCellPhone: string;
 };
 export declare class UpdateEmployeePersonalProfileDto {
+    firstName?: string | null;
+    lastName?: string | null;
+    cellPhone?: string | null;
     middleName?: string | null;
     personalEmail?: string | null;
     birthDate?: string | null;
@@ -43,9 +48,11 @@ export declare class UpdateEmployeePersonalProfileDto {
 export declare class EmployeeProfileService {
     private readonly dataSource;
     private readonly auditContext;
-    constructor(dataSource: DataSource, auditContext: AuditRequestContext);
+    private readonly entraProfileSyncService;
+    constructor(dataSource: DataSource, auditContext: AuditRequestContext, entraProfileSyncService: EntraProfileSyncService);
     getPersonalProfile(userEmail: string): Promise<EmployeePersonalProfileResponse>;
     updatePersonalProfile(userEmail: string, dto: UpdateEmployeePersonalProfileDto): Promise<EmployeePersonalProfileResponse>;
+    private syncPersonalFieldsToEntra;
     private loadPersonalProfile;
     private tableExists;
 }

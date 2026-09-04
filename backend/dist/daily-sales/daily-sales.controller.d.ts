@@ -13,6 +13,12 @@ export declare class DailySalesController {
         label: string;
         sublabel: string;
     }[]>;
+    getPercentageSold(asOfDate?: string, performanceIdsRaw?: string): Promise<{
+        performanceId: number;
+        totalSold: number;
+        engagementSellableCapacity: number | null;
+        percentSold: number | null;
+    }[]>;
     findAll(engagementId?: string): Promise<import("./daily-sales.service").DailySalesRow[]>;
     updateSales(performanceId: string, salesDate: string, body: UpdateSalesDto): Promise<void>;
 }

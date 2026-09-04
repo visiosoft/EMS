@@ -548,8 +548,40 @@ let RampService = RampService_1 = class RampService {
         }
         return { data: out, page: { next: txResult.page.next } };
     }
+    async getEngagementMemos(engagementId, params) {
+        const txResult = await this.getEngagementTransactions(engagementId, { page_size: 200 });
+        const txMap = new Map();
+        for (const tx of txResult.data) {
+            txMap.set(tx.id, tx);
+        }
+        if (txMap.size === 0) {
+            return { data: [], page: { next: null } };
+        }
+        const targetSize = params?.page_size ?? 20;
+        const filtered = [];
+        let cursor = params?.start;
+        let next = null;
+        for (let page = 0; page < 20 && filtered.length < targetSize; page++) {
+            const result = await this.listMemos({ page_size: 100, start: cursor });
+            for (const memo of result.data) {
+                const matchedTx = txMap.get(memo.id);
+                if (matchedTx) {
+                    filtered.push({
+                        ...memo,
+                        transaction_amount: matchedTx.amount,
+                        merchant_name: matchedTx.merchant_name ?? matchedTx.merchant_descriptor ?? null,
+                    });
+                }
+            }
+            cursor = result.page.next ?? undefined;
+            if (!cursor)
+                break;
+            next = cursor;
+        }
+        return { data: filtered.slice(0, targetSize), page: { next: filtered.length >= targetSize ? next : null } };
+    }
     async getEngagementAccountingContext(engagementId) {
-        this.logger.log(`[Engagement #${engagementId}] Loading engagement accounting context…`);
+        this.logger.log(`[Engagement #${engagementId}] Loading engagement accounting context (lightweight)…`);
         const mapping = await this.resolveEngagementRampIds(engagementId);
         const fields = await this.getAllAccountingFields();
         const matchedFields = [];
@@ -591,10 +623,43 @@ let RampService = RampService_1 = class RampService {
                     matchedOptions.push(opt);
             }
         }
+        let customerJobOptionsCount = 0;
+        if (matchedFields.length > 0) {
+            const customerJobOptions = await this.getAllAccountingFieldOptions(matchedFields[0].ramp_id);
+            customerJobOptionsCount = customerJobOptions.length;
+        }
+        return { mapping, matchedFields, matchedOptions, allFields: fields, customerJobOptionsCount };
+    }
+    async getEngagementCustomerJobOptions(engagementId) {
+        const mapping = await this.resolveEngagementRampIds(engagementId);
+        const fields = await this.getAllAccountingFields();
+        const combinedField = fields.find((f) => f.name?.toLowerCase() === 'customer/job' ||
+            (f.display_name?.toLowerCase().includes('customer') &&
+                f.display_name?.toLowerCase().includes('job')));
+        const customerField = fields.find((f) => (f.name?.toLowerCase() === 'customer' ||
+            f.display_name?.toLowerCase() === 'customer') &&
+            f.ramp_id !== combinedField?.ramp_id);
+        const matchedField = mapping.customerJobFieldOptionId
+            ? combinedField
+            : mapping.customerFieldOptionId
+                ? customerField
+                : null;
+        if (!matchedField) {
+            return { fieldName: null, options: [] };
+        }
+        const options = await this.getAllAccountingFieldOptions(matchedField.ramp_id);
+        return { fieldName: matchedField.display_name ?? matchedField.name, options };
+    }
+    async getEngagementGlAccounts(engagementId) {
+        this.logger.log(`[Engagement #${engagementId}] Loading engagement GL accounts…`);
         const glAccountIds = new Set();
-        const billVendorRemoteIds = new Set();
+        const glAccountAmountMap = new Map();
+        const addGlAmount = (selId, amount) => {
+            glAccountAmountMap.set(selId, (glAccountAmountMap.get(selId) ?? 0) + amount);
+        };
         const txResult = await this.getEngagementTransactions(engagementId, { page_size: 100 });
         for (const tx of txResult.data) {
+            let glFoundViaLineItems = false;
             for (const sel of tx.accounting_field_selections ?? []) {
                 if (sel.id)
                     glAccountIds.add(sel.id);
@@ -603,15 +668,32 @@ let RampService = RampService_1 = class RampService {
                 for (const sel of li.accounting_field_selections ?? []) {
                     if (sel.id)
                         glAccountIds.add(sel.id);
+                    if (sel.id && (sel.type === 'GL_ACCOUNT' || sel.category_info?.type === 'GL_ACCOUNT')) {
+                        const liDollars = li.amount
+                            ? li.amount.amount / (li.amount.minor_unit_conversion_rate || 100)
+                            : (tx.amount ?? 0);
+                        addGlAmount(sel.id, liDollars);
+                        glFoundViaLineItems = true;
+                    }
+                }
+            }
+            for (const sel of tx.accounting_field_selections ?? []) {
+                if (sel.id && (sel.type === 'GL_ACCOUNT' || sel.category_info?.type === 'GL_ACCOUNT')) {
+                    addGlAmount(sel.id, tx.amount ?? 0);
+                    glFoundViaLineItems = true;
+                }
+            }
+            if (!glFoundViaLineItems) {
+                for (const cat of tx.accounting_categories ?? []) {
+                    if (cat.tracking_category_remote_type === 'GL_ACCOUNT' && cat.category_id) {
+                        glAccountIds.add(cat.category_id);
+                        addGlAmount(cat.category_id, tx.amount ?? 0);
+                    }
                 }
             }
         }
         const billResult = await this.getEngagementBills(engagementId, { page_size: 100 });
         for (const bill of billResult.data) {
-            if (bill.vendor?.remote_id)
-                billVendorRemoteIds.add(bill.vendor.remote_id);
-            if (bill.vendor?.id)
-                billVendorRemoteIds.add(bill.vendor.id);
             for (const sel of bill.accounting_field_selections ?? []) {
                 if (sel.id)
                     glAccountIds.add(sel.id);
@@ -620,6 +702,20 @@ let RampService = RampService_1 = class RampService {
                 for (const sel of li.accounting_field_selections ?? []) {
                     if (sel.id)
                         glAccountIds.add(sel.id);
+                    if (sel.id && (sel.type === 'GL_ACCOUNT' || sel.category_info?.type === 'GL_ACCOUNT')) {
+                        const liDollars = li.amount
+                            ? li.amount.amount / (li.amount.minor_unit_conversion_rate || 100)
+                            : (bill.amount ? bill.amount.amount / (bill.amount.minor_unit_conversion_rate || 100) : 0);
+                        addGlAmount(sel.id, liDollars);
+                    }
+                }
+            }
+            for (const sel of bill.accounting_field_selections ?? []) {
+                if (sel.id && (sel.type === 'GL_ACCOUNT' || sel.category_info?.type === 'GL_ACCOUNT')) {
+                    const billDollars = bill.amount
+                        ? bill.amount.amount / (bill.amount.minor_unit_conversion_rate || 100)
+                        : 0;
+                    addGlAmount(sel.id, billDollars);
                 }
             }
         }
@@ -627,19 +723,31 @@ let RampService = RampService_1 = class RampService {
         const glAccounts = glAccountIds.size > 0
             ? allGlAccounts.filter((gl) => glAccountIds.has(gl.ramp_id) || glAccountIds.has(gl.id ?? ''))
             : [];
+        const glAccountAmounts = {};
+        for (const gl of glAccounts) {
+            const byRampId = glAccountAmountMap.get(gl.ramp_id) ?? 0;
+            const byId = gl.id ? (glAccountAmountMap.get(gl.id) ?? 0) : 0;
+            glAccountAmounts[gl.ramp_id] = byRampId + byId;
+        }
+        this.logger.log(`[Engagement #${engagementId}] GL accounts: ${glAccounts.length}, amount entries: ${glAccountAmountMap.size}`);
+        return { glAccounts, glAccountAmounts };
+    }
+    async getEngagementAccountingVendors(engagementId) {
+        this.logger.log(`[Engagement #${engagementId}] Loading engagement accounting vendors…`);
+        const billVendorRemoteIds = new Set();
+        const billResult = await this.getEngagementBills(engagementId, { page_size: 100 });
+        for (const bill of billResult.data) {
+            if (bill.vendor?.remote_id)
+                billVendorRemoteIds.add(bill.vendor.remote_id);
+            if (bill.vendor?.id)
+                billVendorRemoteIds.add(bill.vendor.id);
+        }
         const allAccountingVendors = await this.getAllAccountingVendors();
         const accountingVendors = billVendorRemoteIds.size > 0
             ? allAccountingVendors.filter((av) => billVendorRemoteIds.has(av.ramp_id) || billVendorRemoteIds.has(av.id ?? ''))
             : [];
-        let customerJobOptions = [];
-        if (matchedFields.length > 0) {
-            customerJobOptions = await this.getAllAccountingFieldOptions(matchedFields[0].ramp_id);
-        }
-        this.logger.log(`[Engagement #${engagementId}] Accounting context: ` +
-            `${matchedFields.length} field(s), ${matchedOptions.length} option(s), ` +
-            `${glAccounts.length}/${allGlAccounts.length} GL accounts, ` +
-            `${accountingVendors.length}/${allAccountingVendors.length} vendors`);
-        return { mapping, matchedFields, matchedOptions, glAccounts, accountingVendors, allFields: fields, customerJobOptions };
+        this.logger.log(`[Engagement #${engagementId}] Accounting vendors: ${accountingVendors.length}/${allAccountingVendors.length}`);
+        return { accountingVendors };
     }
     async getEngagementVendors(engagementId, params) {
         const vendorIds = new Set();

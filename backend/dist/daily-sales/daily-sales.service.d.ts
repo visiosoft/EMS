@@ -43,6 +43,7 @@ export interface PerformanceSalesRow {
     venueName: string | null;
     city: string | null;
     stateProvince: string | null;
+    dmaMarketName: string | null;
     todayDate: string;
     todayTicketsSold: number | null;
     todayRevenue: number | null;
@@ -173,6 +174,12 @@ export declare class DailySalesService {
     private getByPerformanceFilterOptions;
     private sumSalesForByPerformanceQuery;
     private getDistinctAttractionsFromBase;
+    getPercentageSoldForPerformances(asOfDateParam: string | undefined, performanceIds: number[]): Promise<Array<{
+        performanceId: number;
+        totalSold: number;
+        engagementSellableCapacity: number | null;
+        percentSold: number | null;
+    }>>;
     getByPerformanceSuggestions(asOfDateParam: string | undefined, query: string | undefined, performanceDateRaw?: string, startDateRaw?: string, endDateRaw?: string): Promise<Array<{
         label: string;
         sublabel: string;

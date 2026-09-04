@@ -37,24 +37,15 @@ __decorate([
     __metadata("design:type", tour_entity_1.Tour)
 ], EngagementProject.prototype, "tour", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'OfferCreationStatus', type: 'nvarchar', length: 50 }),
-    __metadata("design:type", String)
+    (0, typeorm_1.Column)({ name: 'OfferCreationStatus', type: 'nvarchar', length: 50, nullable: true }),
+    __metadata("design:type", Object)
 ], EngagementProject.prototype, "projectStage", void 0);
 __decorate([
-    (0, typeorm_1.Column)({
-        name: 'OfferReviewStatus',
-        type: 'nvarchar',
-        length: 50,
-        nullable: true,
-    }),
+    (0, typeorm_1.Column)({ name: 'OfferReviewStatus', type: 'nvarchar', length: 50, nullable: true }),
     __metadata("design:type", Object)
 ], EngagementProject.prototype, "offerReviewStatus", void 0);
 __decorate([
-    (0, typeorm_1.Column)({
-        name: 'ConfirmedOfferLinkID',
-        type: 'int',
-        nullable: true,
-    }),
+    (0, typeorm_1.Column)({ name: 'ConfirmedOfferLinkID', type: 'int', nullable: true }),
     __metadata("design:type", Object)
 ], EngagementProject.prototype, "confirmedOfferLinkId", void 0);
 __decorate([

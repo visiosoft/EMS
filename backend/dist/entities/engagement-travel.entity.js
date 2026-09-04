@@ -17,6 +17,9 @@ let EngagementTravel = class EngagementTravel extends audit_columns_1.AuditColum
     engagementId;
     travelType;
     bookedBy;
+    iaePays;
+    iaeArranges;
+    budgetAmount;
 };
 exports.EngagementTravel = EngagementTravel;
 __decorate([
@@ -28,13 +31,25 @@ __decorate([
     __metadata("design:type", Number)
 ], EngagementTravel.prototype, "engagementId", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'TravelType', type: 'nvarchar', length: 20 }),
+    (0, typeorm_1.Column)({ name: 'TravelType', type: 'nvarchar', length: 50 }),
     __metadata("design:type", String)
 ], EngagementTravel.prototype, "travelType", void 0);
 __decorate([
     (0, typeorm_1.Column)({ name: 'BookedBy', type: 'nvarchar', length: 50, nullable: true }),
     __metadata("design:type", Object)
 ], EngagementTravel.prototype, "bookedBy", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'IAEPays', type: 'bit', nullable: true }),
+    __metadata("design:type", Object)
+], EngagementTravel.prototype, "iaePays", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'IAEArranges', type: 'bit', nullable: true }),
+    __metadata("design:type", Object)
+], EngagementTravel.prototype, "iaeArranges", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'BudgetAmount', type: 'decimal', precision: 18, scale: 2, nullable: true }),
+    __metadata("design:type", Object)
+], EngagementTravel.prototype, "budgetAmount", void 0);
 exports.EngagementTravel = EngagementTravel = __decorate([
     (0, typeorm_1.Entity)({ name: 'EngagementTravel', schema: 'dbo' })
 ], EngagementTravel);

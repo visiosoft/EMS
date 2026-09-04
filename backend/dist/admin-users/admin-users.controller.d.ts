@@ -2,10 +2,13 @@ import { AdminUsersService } from './admin-users.service';
 import { EmployeeCertificationsService } from './employee-certifications.service';
 import { EmployeeEmploymentService, UpdateEmployeeEmploymentProfileDto } from './employee-employment.service';
 import { EmployeeExperienceService } from './employee-experience.service';
-import { EmployeeHealthInsuranceService, UpdateEmployeeHealthInsuranceDto } from './employee-health-insurance.service';
+import { EmployeeHealthInsuranceService, UpdateEmployeeHealthInsuranceDto, BulkUpdateHealthInsuranceDto } from './employee-health-insurance.service';
 import { EmployeeProfileService, UpdateEmployeePersonalProfileDto } from './employee-profile.service';
-import { ApplyInternalContactSyncDto, InternalContactSyncService } from './internal-contact-sync.service';
-import { UpdateMyProfileDto, UserProfileService } from './user-profile.service';
+import { EntraProfileSyncService } from './entra-profile-sync.service';
+import { InternalContactSyncService } from './internal-contact-sync.service';
+import type { ApplyInternalContactSyncDto } from './internal-contact-sync.service';
+import { UserProfileService } from './user-profile.service';
+import type { UpdateMyProfileDto } from './user-profile.service';
 import { AccessLevelService } from '../common/access-level.service';
 import { AccessLevel } from '../common/access-level.enum';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
@@ -18,9 +21,10 @@ export declare class AdminUsersController {
     private readonly employeeExperienceService;
     private readonly employeeHealthInsuranceService;
     private readonly employeeProfileService;
+    private readonly entraProfileSyncService;
     private readonly internalContactSyncService;
     private readonly userProfileService;
-    constructor(accessLevelService: AccessLevelService, adminUsersService: AdminUsersService, auditContext: AuditRequestContext, employeeCertificationsService: EmployeeCertificationsService, employeeEmploymentService: EmployeeEmploymentService, employeeExperienceService: EmployeeExperienceService, employeeHealthInsuranceService: EmployeeHealthInsuranceService, employeeProfileService: EmployeeProfileService, internalContactSyncService: InternalContactSyncService, userProfileService: UserProfileService);
+    constructor(accessLevelService: AccessLevelService, adminUsersService: AdminUsersService, auditContext: AuditRequestContext, employeeCertificationsService: EmployeeCertificationsService, employeeEmploymentService: EmployeeEmploymentService, employeeExperienceService: EmployeeExperienceService, employeeHealthInsuranceService: EmployeeHealthInsuranceService, employeeProfileService: EmployeeProfileService, entraProfileSyncService: EntraProfileSyncService, internalContactSyncService: InternalContactSyncService, userProfileService: UserProfileService);
     getMyAccessLevel(): Promise<{
         accessLevel: AccessLevel;
     }>;
@@ -31,6 +35,15 @@ export declare class AdminUsersController {
     getPersonalProfile(email: string): Promise<import("./employee-profile.service").EmployeePersonalProfileResponse>;
     updatePersonalProfile(email: string, dto: UpdateEmployeePersonalProfileDto): Promise<import("./employee-profile.service").EmployeePersonalProfileResponse>;
     getEmploymentProfile(email: string): Promise<import("./employee-employment.service").EmployeeEmploymentProfileResponse>;
+    previewUserSyncFromEntra(email: string, graphAccessToken?: string): Promise<{
+        changes: import("./entra-profile-sync.service").EntraProfileSyncFieldChange[];
+    }>;
+    applySelectedUserSync(email: string, body: {
+        fields: string[];
+    }, graphAccessToken?: string): Promise<{
+        synced: boolean;
+        changes: import("./entra-profile-sync.service").EntraProfileSyncFieldChange[];
+    }>;
     getAllAccessLevels(): Promise<{
         email: string;
         accessLevel: string;
@@ -40,10 +53,11 @@ export declare class AdminUsersController {
     getCertifications(email: string): Promise<import("./employee-certifications.service").EmployeeCertificationResponse>;
     getHealthInsurance(email: string): Promise<import("./employee-health-insurance.service").EmployeeHealthInsuranceResponse>;
     updateHealthInsurance(email: string, dto: UpdateEmployeeHealthInsuranceDto): Promise<import("./employee-health-insurance.service").EmployeeHealthInsuranceResponse>;
+    bulkUpdateHealthInsurance(email: string, dto: BulkUpdateHealthInsuranceDto): Promise<import("./employee-health-insurance.service").EmployeeHealthInsuranceResponse>;
     listWorkstations(): Promise<import("./employee-employment.service").WorkstationListResponse>;
-    listPhoneExtensions(): Promise<import("./employee-employment.service").PhoneExtensionListResponse>;
-    listPhoneDevices(): Promise<import("./employee-employment.service").PhoneDeviceListResponse>;
-    listPcDevices(): Promise<import("./employee-employment.service").PcDeviceListResponse>;
+    listPhoneExtensions(forEmail?: string): Promise<import("./employee-employment.service").PhoneExtensionListResponse>;
+    listPhoneDevices(forEmail?: string): Promise<import("./employee-employment.service").PhoneDeviceListResponse>;
+    listPcDevices(forEmail?: string): Promise<import("./employee-employment.service").PcDeviceListResponse>;
     getUserLicenses(email: string, graphAccessToken?: string): Promise<string[]>;
     getUserGroups(email: string, graphAccessToken?: string): Promise<string[]>;
     previewInternalContactSync(graphAccessToken?: string): Promise<import("./internal-contact-sync.service").InternalContactSyncPreview>;
@@ -52,4 +66,10 @@ export declare class AdminUsersController {
     previewEmsToEntraContactSync(graphAccessToken?: string): Promise<import("./internal-contact-sync.service").InternalContactSyncPreview>;
     applyEmsToEntraContactSync(dto: ApplyInternalContactSyncDto, graphAccessToken?: string): Promise<import("./internal-contact-sync.service").InternalContactSyncApplyResult>;
     applyInternalContactSync(dto: ApplyInternalContactSyncDto, graphAccessToken?: string): Promise<import("./internal-contact-sync.service").InternalContactSyncApplyResult>;
+    previewEntraToEmsProfileSync(graphAccessToken?: string): Promise<import("./entra-profile-sync.service").EntraProfileSyncPreview>;
+    applyEntraToEmsProfileSync(graphAccessToken?: string, targetEmail?: string): Promise<import("./entra-profile-sync.service").EntraProfileSyncResult>;
+    previewEmsToEntraProfileSync(graphAccessToken?: string): Promise<import("./entra-profile-sync.service").EntraProfileSyncPreview>;
+    applyEmsToEntraProfileSync(graphAccessToken?: string, targetEmail?: string): Promise<import("./entra-profile-sync.service").EntraProfileSyncResult>;
+    previewEntraProfileSync(graphAccessToken?: string): Promise<import("./entra-profile-sync.service").EntraProfileSyncPreview>;
+    applyEntraProfileSync(graphAccessToken?: string, targetEmail?: string): Promise<import("./entra-profile-sync.service").EntraProfileSyncResult>;
 }

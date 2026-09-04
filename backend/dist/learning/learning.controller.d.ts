@@ -125,6 +125,10 @@ export declare class LearningController {
         platformName: any;
         documents: any;
     }>;
+    deleteSubmission(id: number): Promise<{
+        submissionId: number;
+        deleted: boolean;
+    }>;
     getEmployeeScores(departmentId: number): Promise<any>;
     getMyScore(contactId: number, departmentId: number): Promise<{
         totalPoints: number;

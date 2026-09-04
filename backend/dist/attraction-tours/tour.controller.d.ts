@@ -17,7 +17,7 @@ export declare class TourController {
         attractionName: string | null;
         tourName: string | null;
         talentAgencyName: string | null;
-        projectStage: string;
+        projectStage: string | null;
         offerReviewStatus: string | null;
         confirmedOfferLinkId: number | null;
         createdDate: Date;

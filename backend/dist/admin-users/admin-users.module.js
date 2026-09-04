@@ -18,6 +18,7 @@ const employee_experience_service_1 = require("./employee-experience.service");
 const employee_health_insurance_service_1 = require("./employee-health-insurance.service");
 const employee_profile_service_1 = require("./employee-profile.service");
 const entra_auth_guard_1 = require("./entra-auth.guard");
+const entra_profile_sync_service_1 = require("./entra-profile-sync.service");
 const internal_contact_sync_service_1 = require("./internal-contact-sync.service");
 const self_profile_controller_1 = require("./self-profile.controller");
 const self_profile_service_1 = require("./self-profile.service");
@@ -37,6 +38,7 @@ exports.AdminUsersModule = AdminUsersModule = __decorate([
             employee_health_insurance_service_1.EmployeeHealthInsuranceService,
             employee_profile_service_1.EmployeeProfileService,
             entra_auth_guard_1.EntraAuthGuard,
+            entra_profile_sync_service_1.EntraProfileSyncService,
             internal_contact_sync_service_1.InternalContactSyncService,
             self_profile_service_1.SelfProfileService,
             user_profile_service_1.UserProfileService,

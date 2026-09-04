@@ -23,6 +23,7 @@ const contact_assignment_entity_1 = require("../entities/contact-assignment.enti
 const company_entity_1 = require("../entities/company.entity");
 const role_entity_1 = require("../entities/role.entity");
 const department_entity_1 = require("../entities/department.entity");
+const department_role_entity_1 = require("../entities/department-role.entity");
 const create_company_contact_bulk_dto_1 = require("./dto/create-company-contact-bulk.dto");
 function assertOptionalE164Phone(value, field) {
     if (value == null)
@@ -87,28 +88,33 @@ let CompanyContactBulkController = class CompanyContactBulkController {
             const savedContact = await this.getOrCreateContact(em, dto);
             const createdIds = [];
             const skipped = [];
-            for (const roleId of roleIds) {
-                for (const departmentId of departmentIds) {
-                    const existing = await em.findOne(contact_assignment_entity_1.ContactAssignment, {
-                        where: {
-                            companyId,
-                            contactId: savedContact.contactId,
-                            roleId,
-                            departmentId,
-                        },
-                    });
-                    if (existing) {
-                        skipped.push(`${roleId}:${departmentId}`);
-                        continue;
-                    }
-                    const saved = await em.save(contact_assignment_entity_1.ContactAssignment, em.create(contact_assignment_entity_1.ContactAssignment, {
-                        contactId: savedContact.contactId,
+            const validPairs = await em.find(department_role_entity_1.DepartmentRole, {
+                where: { departmentId: (0, typeorm_2.In)(departmentIds), roleId: (0, typeorm_2.In)(roleIds) },
+            });
+            if (validPairs.length === 0)
+                throw new common_1.BadRequestException({
+                    message: 'None of the selected role/department combinations exist in the DepartmentRole mappings.',
+                });
+            for (const pair of validPairs) {
+                const existing = await em.findOne(contact_assignment_entity_1.ContactAssignment, {
+                    where: {
                         companyId,
-                        roleId,
-                        departmentId,
-                    }));
-                    createdIds.push(saved.contactAssignmentId);
+                        contactId: savedContact.contactId,
+                        roleId: pair.roleId,
+                        departmentId: pair.departmentId,
+                    },
+                });
+                if (existing) {
+                    skipped.push(`${pair.roleId}:${pair.departmentId}`);
+                    continue;
                 }
+                const saved = await em.save(contact_assignment_entity_1.ContactAssignment, em.create(contact_assignment_entity_1.ContactAssignment, {
+                    contactId: savedContact.contactId,
+                    companyId,
+                    roleId: pair.roleId,
+                    departmentId: pair.departmentId,
+                }));
+                createdIds.push(saved.contactAssignmentId);
             }
             if (createdIds.length === 0) {
                 throw new common_1.ConflictException({

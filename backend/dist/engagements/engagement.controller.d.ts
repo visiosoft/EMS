@@ -5,6 +5,7 @@ import { UpdateEngagementVenueTabDto } from './dto/update-engagement-venue-tab.d
 import { CreateEngagementDto } from './dto/create-engagement.dto';
 import { CreateEngagementIaeContactDto } from './dto/create-engagement-iae-contact.dto';
 import { CreatePerformanceDto } from './dto/create-performance.dto';
+import { CreateEngagementRehearsalDto, UpdateEngagementRehearsalDto } from './dto/engagement-rehearsal.dto';
 import { UpdateEngagementDto } from './dto/update-engagement.dto';
 import { UpdateEngagementFinanceDto } from './dto/update-engagement-finance.dto';
 import { UpdateEngagementIaeContactDto } from './dto/update-engagement-iae-contact.dto';
@@ -25,11 +26,16 @@ export declare class EngagementController {
     filterOptions(): Promise<{
         attractionNames: string[];
         dmaMarketNames: string[];
+        cityNames: string[];
         venueLabels: string[];
     }>;
     financeLookups(): Promise<import("./engagement.service").EngagementFinanceLookups>;
     listByTour(tourId: number): Promise<import("./engagement.service").EngagementListRow[]>;
     iaeContactLookups(): Promise<import("./engagement.service").EngagementIaeContactLookups>;
+    listEquipmentRentalTypes(): Promise<{
+        equipmentRentalTypeId: number;
+        typeName: string;
+    }[]>;
     listHubSchedule(startDate?: string, endDate?: string): Promise<import("./engagement.service").EngagementListRow[]>;
     listHubRedAlerts(): Promise<import("./engagement.service").HubRedAlertRow[]>;
     updateWithholdingLinks(withholdingId: number, dto: UpdateNonResidentWithholdingLinksDto): Promise<void>;
@@ -50,10 +56,13 @@ export declare class EngagementController {
         withholdingArea?: string | null;
         withholdingTaxRate?: number | null;
         withholdingAgencyName?: string | null;
+        completedWaiverUrl?: string | null;
         iaeWaiverSubmissionDate?: string | null;
         iaeWaiverAppNumber?: string | null;
+        tourWaiverUrl?: string | null;
+        exceptionsNotes?: string | null;
     }): Promise<void>;
-    listPaged(offset: number, limit: number, q?: string, engagementId?: string, status?: string, attraction?: string, dma?: string, venue?: string, timing?: string, mine?: string, sortBy?: string, sortDir?: string, dateFrom?: string, dateTo?: string): Promise<{
+    listPaged(offset: number, limit: number, q?: string, engagementId?: string, status?: string, attraction?: string, dma?: string, city?: string, venue?: string, timing?: string, mine?: string, sortBy?: string, sortDir?: string, dateFrom?: string, dateTo?: string): Promise<{
         data: import("./engagement.service").EngagementListRow[];
         total: number;
     }>;
@@ -101,6 +110,16 @@ export declare class EngagementController {
         added: boolean;
     }>;
     removeServiceProvider(id: number, providerCompanyId: number): Promise<void>;
+    listRehearsals(id: number): Promise<{
+        rehearsalId: number;
+        rehearsalDate: string;
+        rehearsalTime: string | null;
+    }[]>;
+    createRehearsal(id: number, dto: CreateEngagementRehearsalDto): Promise<{
+        rehearsalId: number;
+    }>;
+    updateRehearsal(id: number, rehearsalId: number, dto: UpdateEngagementRehearsalDto): Promise<void>;
+    deleteRehearsal(id: number, rehearsalId: number): Promise<void>;
     listPerformances(id: number): Promise<{
         performanceId: number;
         engagementId: number;
@@ -152,6 +171,58 @@ export declare class EngagementController {
     }>;
     updateTravelCarService(id: number, carServiceTravelId: number, dto: UpdateEngagementTravelCarServiceDto): Promise<void>;
     deleteTravel(id: number, travelId: number): Promise<void>;
+    upsertTravelDrillBits(id: number, body: {
+        travelTypes: {
+            travelType: string;
+            iaePays: boolean | null;
+            iaeArranges: boolean | null;
+            budgetAmount: number | null;
+        }[];
+    }): Promise<void>;
+    getEngagementBuyouts(id: number): Promise<{
+        engagementBuyoutId: number;
+        buyoutDescription: string;
+        buyoutBudgetAmount: number | null;
+    }[]>;
+    upsertEngagementBuyouts(id: number, body: {
+        items: {
+            engagementBuyoutId?: number;
+            buyoutDescription: string;
+            buyoutBudgetAmount: number | null;
+        }[];
+    }): Promise<void>;
+    getEquipmentRentals(id: number): Promise<{
+        engagementProductionEquipmentRentalId: number;
+        equipmentRentalTypeId: number;
+        budgetAmount: number | null;
+        notes: string | null;
+        otherDescription: string | null;
+    }[]>;
+    upsertEquipmentRentals(id: number, body: {
+        items: {
+            engagementProductionEquipmentRentalId?: number;
+            equipmentRentalTypeId: number;
+            budgetAmount: number | null;
+            notes?: string | null;
+            otherDescription?: string | null;
+        }[];
+    }): Promise<void>;
+    getProductionMisc(id: number): Promise<{
+        runnerRequired: boolean | null;
+        cateringRequired: boolean | null;
+        cateringBudgetLineItem: string | null;
+        productionBuyoutRequired: boolean | null;
+        productionBuyoutDescription: string | null;
+        productionBuyoutBudgetAmount: number | null;
+    }>;
+    updateProductionMisc(id: number, body: {
+        runnerRequired: boolean | null;
+        cateringRequired: boolean | null;
+        cateringBudgetLineItem: string | null;
+        productionBuyoutRequired: boolean | null;
+        productionBuyoutDescription: string | null;
+        productionBuyoutBudgetAmount: number | null;
+    }): Promise<void>;
     getContracts(id: number): Promise<Record<string, unknown>[]>;
     uploadContract(id: number, file: Express.Multer.File): Promise<{
         extracted: import("./contract-extraction.service").ExtractedContractData;

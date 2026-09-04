@@ -51,7 +51,7 @@ __decorate([
     __metadata("design:type", company_entity_1.Company)
 ], Venue.prototype, "company", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'VenueName', type: 'nvarchar', length: 200 }),
+    (0, typeorm_1.Column)({ name: 'VenueName', type: 'nvarchar', length: 1000 }),
     __metadata("design:type", String)
 ], Venue.prototype, "venueName", void 0);
 __decorate([

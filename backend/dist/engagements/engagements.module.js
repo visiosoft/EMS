@@ -23,6 +23,7 @@ const link_entity_1 = require("../entities/link.entity");
 const engagement_finance_entity_1 = require("../entities/engagement-finance.entity");
 const engagement_link_entity_1 = require("../entities/engagement-link.entity");
 const engagement_production_entity_1 = require("../entities/engagement-production.entity");
+const engagement_rehearsal_entity_1 = require("../entities/engagement-rehearsal.entity");
 const engagement_venue_entity_1 = require("../entities/engagement-venue.entity");
 const engagement_xref_entity_1 = require("../entities/engagement-xref.entity");
 const non_resident_withholding_entity_1 = require("../entities/non-resident-withholding.entity");
@@ -43,9 +44,14 @@ const engagement_travel_entity_1 = require("../entities/engagement-travel.entity
 const engagement_travel_car_service_entity_1 = require("../entities/engagement-travel-car-service.entity");
 const engagement_travel_hotel_entity_1 = require("../entities/engagement-travel-hotel.entity");
 const engagement_partner_entity_1 = require("../entities/engagement-partner.entity");
+const engagement_buyout_entity_1 = require("../entities/engagement-buyout.entity");
+const engagement_production_equipment_rental_entity_1 = require("../entities/engagement-production-equipment-rental.entity");
+const equipment_rental_type_entity_1 = require("../entities/equipment-rental-type.entity");
 const performance_contract_entity_1 = require("../entities/performance-contract.entity");
 const contract_extraction_service_1 = require("./contract-extraction.service");
 const contract_llm_client_1 = require("./contract-llm.client");
+const engagement_vip_pdf_controller_1 = require("./engagement-vip-pdf.controller");
+const engagement_vip_pdf_service_1 = require("./engagement-vip-pdf.service");
 let EngagementsModule = class EngagementsModule {
 };
 exports.EngagementsModule = EngagementsModule;
@@ -61,6 +67,7 @@ exports.EngagementsModule = EngagementsModule = __decorate([
                 engagement_venue_entity_1.EngagementVenue,
                 engagement_xref_entity_1.EngagementXref,
                 engagement_production_entity_1.EngagementProduction,
+                engagement_rehearsal_entity_1.EngagementRehearsal,
                 performance_entity_1.Performance,
                 performance_ticketing_entity_1.PerformanceTicketing,
                 ticketing_sales_entity_1.TicketingSales,
@@ -83,13 +90,21 @@ exports.EngagementsModule = EngagementsModule = __decorate([
                 engagement_travel_car_service_entity_1.EngagementTravelCarService,
                 engagement_travel_hotel_entity_1.EngagementTravelHotel,
                 engagement_partner_entity_1.EngagementPartner,
+                engagement_buyout_entity_1.EngagementBuyout,
+                engagement_production_equipment_rental_entity_1.EngagementProductionEquipmentRental,
+                equipment_rental_type_entity_1.EquipmentRentalType,
                 performance_contract_entity_1.PerformanceContract,
             ]),
             attraction_tours_module_1.AttractionToursModule,
             document_library_module_1.DocumentLibraryModule,
         ],
-        controllers: [engagement_controller_1.EngagementController],
-        providers: [engagement_service_1.EngagementService, contract_extraction_service_1.ContractExtractionService, contract_llm_client_1.ContractLlmClient],
+        controllers: [engagement_controller_1.EngagementController, engagement_vip_pdf_controller_1.EngagementVipPdfController],
+        providers: [
+            engagement_service_1.EngagementService,
+            contract_extraction_service_1.ContractExtractionService,
+            contract_llm_client_1.ContractLlmClient,
+            engagement_vip_pdf_service_1.EngagementVipPdfService,
+        ],
         exports: [engagement_service_1.EngagementService],
     })
 ], EngagementsModule);

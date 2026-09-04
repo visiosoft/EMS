@@ -61,6 +61,10 @@ export interface TourListRow {
     tourBannerImageUrl: string | null;
     mediaMix: TourMediaMixRow[];
     appCreated: boolean;
+    projectCount: number;
+    engagementCount: number;
+    projectNames: string[];
+    engagementNames: string[];
 }
 export declare class TourService {
     private readonly tourRepo;
@@ -102,12 +106,25 @@ export declare class TourService {
     private mapTourEntityToRow;
     private toPositiveIntOrNull;
     private toTrimmedOrNull;
+    private tourProjectAndEngagementCounts;
     private tourMediaMixByTourIds;
     listAdvertisingSubTypes(): Promise<AdvertisingSubTypeOption[]>;
     private normalizeMediaMix;
     private syncTourMediaMix;
     private assertUniqueTourName;
     list(): Promise<TourListRow[]>;
+    listProjectsByTour(tourId: number): Promise<{
+        engagementProjectId: number;
+        tourId: number;
+        attractionName: string | null;
+        tourName: string | null;
+        talentAgencyName: string | null;
+        projectStage: string | null;
+        offerReviewStatus: string | null;
+        confirmedOfferLinkId: number | null;
+        createdDate: Date;
+        createdBy: string | null;
+    }[]>;
     listPaginated(offset: number, limit: number, q?: string, sortByRaw?: string, sortDirRaw?: string): Promise<{
         data: TourListRow[];
         total: number;

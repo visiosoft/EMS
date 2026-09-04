@@ -1,5 +1,7 @@
 import { DataSource } from 'typeorm';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
+import { EmployeeHealthInsuranceService } from './employee-health-insurance.service';
+import { EntraProfileSyncService } from './entra-profile-sync.service';
 export type WorkstationOption = {
     workLocationId: number;
     locationCode: string;
@@ -49,8 +51,14 @@ export type PcDeviceListResponse = {
 export type EmployeeEmploymentProfileResponse = {
     contactId: number;
     contactAssignmentId: number;
+    title: string;
+    workEmail: string;
+    department: string;
+    department2: string;
+    office: string;
     accessLevel: string;
     workAuthorization: string;
+    workAuthorizationLinkUrl: string;
     workstation: string;
     startDate: string | null;
     supervisor: string;
@@ -74,10 +82,20 @@ export type EmployeeEmploymentProfileResponse = {
     pcServiceTag: string;
     bluetoothStatus: string;
     pcWindowsName: string;
+    currentExtensionId: number | null;
+    currentPhoneId: number | null;
+    currentComputerId: number | null;
+    departmentRank: string;
+    role: string;
+    employmentStatus: string;
+    employmentType: string;
 };
 export declare class UpdateEmployeeEmploymentProfileDto {
     accessLevel?: string | null;
+    title?: string | null;
+    office?: string | null;
     workAuthorization?: string | null;
+    workAuthorizationLinkUrl?: string | null;
     workstation?: string | null;
     startDate?: string | null;
     supervisor?: string | null;
@@ -98,17 +116,23 @@ export declare class UpdateEmployeeEmploymentProfileDto {
 export declare class EmployeeEmploymentService {
     private readonly dataSource;
     private readonly auditContext;
-    constructor(dataSource: DataSource, auditContext: AuditRequestContext);
+    private readonly healthInsuranceService;
+    private readonly entraProfileSyncService;
+    constructor(dataSource: DataSource, auditContext: AuditRequestContext, healthInsuranceService: EmployeeHealthInsuranceService, entraProfileSyncService: EntraProfileSyncService);
     getEmploymentProfile(userEmail: string): Promise<EmployeeEmploymentProfileResponse>;
     getAllAccessLevels(): Promise<{
         email: string;
         accessLevel: string;
     }[]>;
     updateEmploymentProfile(userEmail: string, dto: UpdateEmployeeEmploymentProfileDto): Promise<EmployeeEmploymentProfileResponse>;
+    private syncEmploymentFieldsToEntra;
     listWorkstations(currentUserEmail?: string): Promise<WorkstationListResponse>;
     listPhoneExtensions(currentUserEmail?: string): Promise<PhoneExtensionListResponse>;
     listPhoneDevices(currentUserEmail?: string): Promise<PhoneDeviceListResponse>;
     listPcDevices(currentUserEmail?: string): Promise<PcDeviceListResponse>;
     private loadEmploymentProfile;
     private tableExists;
+    private hasColumn;
+    private getWorkAuthorizationLinkColumn;
+    private upsertWorkAuthLink;
 }

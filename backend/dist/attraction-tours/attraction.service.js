@@ -17,6 +17,7 @@ const common_1 = require("@nestjs/common");
 const typeorm_1 = require("@nestjs/typeorm");
 const typeorm_2 = require("typeorm");
 const attraction_entity_1 = require("../entities/attraction.entity");
+const class_entity_1 = require("../entities/class.entity");
 const link_entity_1 = require("../entities/link.entity");
 const tour_entity_1 = require("../entities/tour.entity");
 const ems_app_created_store_1 = require("./ems-app-created.store");
@@ -29,11 +30,12 @@ let AttractionService = class AttractionService {
         this.tourRepo = tourRepo;
         this.emsCreated = emsCreated;
     }
-    async latestTourBannerUrlsByAttractionIds(attractionIds) {
+    async latestTourInfoByAttractionIds(attractionIds) {
         const uniq = [...new Set(attractionIds)].filter((id) => Number.isInteger(id) && id > 0);
         const map = new Map();
-        for (const id of uniq)
-            map.set(id, null);
+        for (const id of uniq) {
+            map.set(id, { tourBannerImageUrl: null, className: null });
+        }
         if (!uniq.length)
             return map;
         const maxRows = await this.tourRepo
@@ -48,26 +50,34 @@ let AttractionService = class AttractionService {
             .filter((id) => Number.isFinite(id) && id > 0);
         if (!tourIds.length)
             return map;
-        const urlRows = await this.tourRepo
+        const infoRows = await this.tourRepo
             .createQueryBuilder('t')
             .leftJoin(link_entity_1.Link, 'tb', 'tb.linkId = t.bannerLinkId')
+            .leftJoin(class_entity_1.Class, 'c', 'c.classId = t.classId')
             .select('t.tourId', 'tourId')
             .addSelect('t.attractionId', 'attractionId')
             .addSelect('tb.linkUrl', 'tourBannerImageUrl')
-            .where('t.tourId IN (:...tourIds)', { tourIds })
+            .addSelect('c.className', 'className')
+            .where('t.tourId IN (:...tIds)', { tIds: tourIds })
             .getRawMany();
-        const urlByTourId = new Map();
-        for (const row of urlRows) {
+        const infoByTourId = new Map();
+        for (const row of infoRows) {
             const tid = Number(row.tourId);
             const u = row.tourBannerImageUrl != null
                 ? String(row.tourBannerImageUrl).trim()
                 : '';
-            urlByTourId.set(tid, u || null);
+            infoByTourId.set(tid, {
+                tourBannerImageUrl: u || null,
+                className: row.className ? String(row.className).trim() : null,
+            });
         }
         for (const row of maxRows) {
             const aid = Number(row.attractionId);
-            const url = urlByTourId.get(Number(row.maxTourId)) ?? null;
-            map.set(aid, url);
+            const info = infoByTourId.get(Number(row.maxTourId)) ?? {
+                tourBannerImageUrl: null,
+                className: null,
+            };
+            map.set(aid, info);
         }
         return map;
     }
@@ -118,12 +128,13 @@ let AttractionService = class AttractionService {
         const countMap = new Map();
         for (const r of countsRaw)
             countMap.set(Number(r.aid), Number(r.cnt));
-        const bannerMap = await this.latestTourBannerUrlsByAttractionIds(attractions.map((a) => a.attractionId));
+        const infoMap = await this.latestTourInfoByAttractionIds(attractions.map((a) => a.attractionId));
         return attractions.map((a) => ({
             attractionId: a.attractionId,
             attractionName: a.attractionName,
             activeTourCount: countMap.get(a.attractionId) ?? 0,
-            latestTourBannerImageUrl: bannerMap.get(a.attractionId) ?? null,
+            latestTourBannerImageUrl: infoMap.get(a.attractionId)?.tourBannerImageUrl ?? null,
+            latestTourClassName: infoMap.get(a.attractionId)?.className ?? null,
             appCreated: this.emsCreated.canDeleteAttraction(a.attractionId),
         }));
     }
@@ -148,6 +159,11 @@ let AttractionService = class AttractionService {
             baseQb.andWhere(`(
           LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
           OR CAST(a.attractionId AS nvarchar(30)) LIKE :${param} ESCAPE '\\'
+          OR EXISTS (
+            SELECT 1 FROM dbo.[Tour] tSearch
+            WHERE tSearch.[AttractionID] = a.[AttractionID]
+              AND LOWER(ISNULL(tSearch.[TourName], '')) LIKE LOWER(:${param}) ESCAPE '\\'
+          )
         )`, { [param]: `%${this.escapeLikePattern(token)}%` });
         });
         const total = await baseQb.getCount();
@@ -165,13 +181,14 @@ let AttractionService = class AttractionService {
             for (const r of countsRaw)
                 countMap.set(Number(r.aid), Number(r.cnt));
         }
-        const bannerMap = await this.latestTourBannerUrlsByAttractionIds(ids);
+        const infoMap = await this.latestTourInfoByAttractionIds(ids);
         return {
             data: attractions.map((a) => ({
                 attractionId: a.attractionId,
                 attractionName: a.attractionName,
                 activeTourCount: countMap.get(a.attractionId) ?? 0,
-                latestTourBannerImageUrl: bannerMap.get(a.attractionId) ?? null,
+                latestTourBannerImageUrl: infoMap.get(a.attractionId)?.tourBannerImageUrl ?? null,
+                latestTourClassName: infoMap.get(a.attractionId)?.className ?? null,
                 appCreated: this.emsCreated.canDeleteAttraction(a.attractionId),
             })),
             total,
@@ -216,14 +233,13 @@ let AttractionService = class AttractionService {
         const activeTourCount = await this.tourRepo.count({
             where: { attractionId },
         });
-        const bannerMap = await this.latestTourBannerUrlsByAttractionIds([
-            attractionId,
-        ]);
+        const infoMap = await this.latestTourInfoByAttractionIds([attractionId]);
         return {
             attractionId: a.attractionId,
             attractionName: a.attractionName,
             activeTourCount,
-            latestTourBannerImageUrl: bannerMap.get(attractionId) ?? null,
+            latestTourBannerImageUrl: infoMap.get(attractionId)?.tourBannerImageUrl ?? null,
+            latestTourClassName: infoMap.get(attractionId)?.className ?? null,
             appCreated: this.emsCreated.canDeleteAttraction(a.attractionId),
         };
     }

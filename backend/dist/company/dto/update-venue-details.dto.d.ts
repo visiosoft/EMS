@@ -1,5 +1,6 @@
 import { UpdateVenueProfileDto } from './update-venue-profile.dto';
 declare class ContactDraftDto {
+    contactId?: number | null;
     fullName?: string;
     email?: string;
     phone?: string;

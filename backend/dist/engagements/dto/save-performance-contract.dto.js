@@ -9,7 +9,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SavePerformanceContractDto = void 0;
+exports.SavePerformanceContractDto = exports.PerformanceItemDto = void 0;
 const class_validator_1 = require("class-validator");
 const class_transformer_1 = require("class-transformer");
 function toOptionalDecimal(v) {
@@ -20,6 +20,28 @@ function toOptionalDecimal(v) {
     const n = Number(v);
     return Number.isFinite(n) ? n : undefined;
 }
+class PerformanceItemDto {
+    date;
+    time;
+    formatted;
+}
+exports.PerformanceItemDto = PerformanceItemDto;
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", Object)
+], PerformanceItemDto.prototype, "date", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", Object)
+], PerformanceItemDto.prototype, "time", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(500),
+    __metadata("design:type", Object)
+], PerformanceItemDto.prototype, "formatted", void 0);
 class SavePerformanceContractDto {
     agency;
     agent;
@@ -186,12 +208,15 @@ __decorate([
 ], SavePerformanceContractDto.prototype, "paymentBankName", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => PerformanceItemDto),
     __metadata("design:type", Object)
 ], SavePerformanceContractDto.prototype, "performances", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.IsString)({ each: true }),
     __metadata("design:type", Object)
 ], SavePerformanceContractDto.prototype, "additionallyInsured", void 0);
 __decorate([

@@ -68,6 +68,7 @@ class UpdateCompanyContactDto {
     workPhone;
     roleId;
     departmentId;
+    companyId;
 }
 exports.UpdateCompanyContactDto = UpdateCompanyContactDto;
 __decorate([
@@ -114,4 +115,10 @@ __decorate([
     (0, class_validator_1.Min)(1),
     __metadata("design:type", Number)
 ], UpdateCompanyContactDto.prototype, "departmentId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    __metadata("design:type", Number)
+], UpdateCompanyContactDto.prototype, "companyId", void 0);
 //# sourceMappingURL=create-company-contact.dto.js.map

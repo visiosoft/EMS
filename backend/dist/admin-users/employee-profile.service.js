@@ -18,7 +18,11 @@ const typeorm_1 = require("@nestjs/typeorm");
 const typeorm_2 = require("typeorm");
 const class_validator_1 = require("class-validator");
 const audit_request_context_service_1 = require("../audit/audit-request-context.service");
+const entra_profile_sync_service_1 = require("./entra-profile-sync.service");
 class UpdateEmployeePersonalProfileDto {
+    firstName;
+    lastName;
+    cellPhone;
     middleName;
     personalEmail;
     birthDate;
@@ -35,6 +39,24 @@ class UpdateEmployeePersonalProfileDto {
     emergencyCellPhone;
 }
 exports.UpdateEmployeePersonalProfileDto = UpdateEmployeePersonalProfileDto;
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(100),
+    __metadata("design:type", Object)
+], UpdateEmployeePersonalProfileDto.prototype, "firstName", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(100),
+    __metadata("design:type", Object)
+], UpdateEmployeePersonalProfileDto.prototype, "lastName", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(30),
+    __metadata("design:type", Object)
+], UpdateEmployeePersonalProfileDto.prototype, "cellPhone", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
@@ -109,9 +131,11 @@ __decorate([
 let EmployeeProfileService = class EmployeeProfileService {
     dataSource;
     auditContext;
-    constructor(dataSource, auditContext) {
+    entraProfileSyncService;
+    constructor(dataSource, auditContext, entraProfileSyncService) {
         this.dataSource = dataSource;
         this.auditContext = auditContext;
+        this.entraProfileSyncService = entraProfileSyncService;
     }
     async getPersonalProfile(userEmail) {
         const email = normalizeEmail(userEmail);
@@ -121,6 +145,10 @@ let EmployeeProfileService = class EmployeeProfileService {
         return this.loadPersonalProfile(email);
     }
     async updatePersonalProfile(userEmail, dto) {
+        console.log('[PersonalProfile] updatePersonalProfile called for:', userEmail);
+        console.log('[PersonalProfile] DTO keys:', Object.keys(dto));
+        console.log('[PersonalProfile] DTO firstName:', JSON.stringify(dto.firstName), '| lastName:', JSON.stringify(dto.lastName), '| cellPhone:', JSON.stringify(dto.cellPhone));
+        console.log('[PersonalProfile] graphAccessToken present:', !!this.auditContext.getGraphAccessToken());
         const email = normalizeEmail(userEmail);
         if (!email) {
             throw new common_1.BadRequestException('A valid email address is required.');
@@ -128,6 +156,30 @@ let EmployeeProfileService = class EmployeeProfileService {
         const current = await this.loadPersonalProfile(email);
         const modifiedBy = this.auditContext.getUserOid() ?? this.auditContext.getUserEmail() ?? email;
         await this.dataSource.transaction(async (manager) => {
+            const hasContactInfoChanges = dto.firstName !== undefined || dto.lastName !== undefined || dto.cellPhone !== undefined;
+            if (hasContactInfoChanges) {
+                const setClauses = [];
+                const params = [];
+                let idx = 0;
+                if (dto.firstName !== undefined) {
+                    setClauses.push(`FirstName = @${idx}`);
+                    params.push(cleanText(dto.firstName) || current.firstName);
+                    idx++;
+                }
+                if (dto.lastName !== undefined) {
+                    setClauses.push(`LastName = @${idx}`);
+                    params.push(cleanText(dto.lastName) || current.lastName);
+                    idx++;
+                }
+                if (dto.cellPhone !== undefined) {
+                    setClauses.push(`CellPhone = @${idx}`);
+                    params.push(nullableText(dto.cellPhone));
+                    idx++;
+                }
+                if (setClauses.length > 0) {
+                    await manager.query(`UPDATE dbo.ContactInfo SET ${setClauses.join(', ')} WHERE ContactInfoID = @${idx}`, [...params, current.contactInfoId]);
+                }
+            }
             const epExists = await manager.query(`SELECT 1 AS found FROM dbo.EmployeeProfile WHERE ContactID = @0`, [current.contactId]);
             console.log('[PersonalProfile] contactId:', current.contactId, 'epExists:', epExists.length > 0);
             console.log('[PersonalProfile] dto.birthDate:', dto.birthDate, '→ nullableDate:', nullableDate(dto.birthDate));
@@ -263,7 +315,70 @@ let EmployeeProfileService = class EmployeeProfileService {
                 }
             }
         });
+        this.syncPersonalFieldsToEntra(email, dto, current).catch((err) => {
+            console.error('[PersonalProfile] Entra sync failed:', err?.message || err);
+        });
         return this.loadPersonalProfile(email);
+    }
+    async syncPersonalFieldsToEntra(email, dto, current) {
+        const graphToken = this.auditContext.getGraphAccessToken();
+        const nativePayload = {};
+        const csaPayload = {};
+        if (dto.firstName !== undefined) {
+            nativePayload.givenName = cleanText(dto.firstName) || null;
+            const newFirst = cleanText(dto.firstName) || current.firstName;
+            const newLast = dto.lastName !== undefined ? (cleanText(dto.lastName) || current.lastName) : current.lastName;
+            nativePayload.displayName = [newFirst, newLast].filter(Boolean).join(' ');
+        }
+        if (dto.lastName !== undefined) {
+            nativePayload.surname = cleanText(dto.lastName) || null;
+            if (!nativePayload.displayName) {
+                const newFirst = current.firstName;
+                const newLast = cleanText(dto.lastName) || current.lastName;
+                nativePayload.displayName = [newFirst, newLast].filter(Boolean).join(' ');
+            }
+        }
+        if (dto.cellPhone !== undefined) {
+            nativePayload.mobilePhone = nullableText(dto.cellPhone);
+        }
+        if (dto.personalEmail !== undefined) {
+            csaPayload.PersonalEmail = nullableText(dto.personalEmail) ?? null;
+        }
+        if (dto.middleName !== undefined) {
+            csaPayload.MiddleName = nullableText(dto.middleName) ?? null;
+        }
+        if (dto.birthDate !== undefined) {
+            csaPayload.Birthday = nullableText(dto.birthDate) ?? null;
+        }
+        if (dto.ssn !== undefined) {
+            const last4 = cleanText(dto.ssn)?.replace(/\D/g, '').slice(-4);
+            csaPayload.SocialSecurityNumber = last4 || null;
+        }
+        if (dto.homeStreet !== undefined || dto.homeAddress2 !== undefined || dto.homeCity !== undefined || dto.homeState !== undefined || dto.homePostalCode !== undefined || dto.homeCountry !== undefined) {
+            csaPayload.HomeAddressStreet1 = nullableText(dto.homeStreet) ?? (current.homeStreet || null);
+            csaPayload.HomeAddressStreet2 = nullableText(dto.homeAddress2) ?? (current.homeAddress2 || null);
+            csaPayload.HomeAddressCity = nullableText(dto.homeCity) ?? (current.homeCity || null);
+            csaPayload.HomeAddressState = nullableText(dto.homeState) ?? (current.homeState || null);
+            csaPayload.HomeAddressZip = nullableText(dto.homePostalCode) ?? (current.homePostalCode || null);
+            csaPayload.HomeAddressCountry = nullableText(dto.homeCountry) ?? (current.homeCountry || null);
+        }
+        if (dto.emergencyFirstName !== undefined || dto.emergencyLastName !== undefined || dto.emergencyEmail !== undefined || dto.emergencyCellPhone !== undefined) {
+            csaPayload.EmergencyContactFirstName = nullableText(dto.emergencyFirstName) ?? (current.emergencyFirstName || null);
+            csaPayload.EmergencyContactLastName = nullableText(dto.emergencyLastName) ?? (current.emergencyLastName || null);
+            csaPayload.EmergencyContactCell = nullableText(dto.emergencyCellPhone) ?? (current.emergencyCellPhone || null);
+            csaPayload.EmergencyContactEmail = nullableText(dto.emergencyEmail) ?? (current.emergencyEmail || null);
+        }
+        const hasNative = Object.keys(nativePayload).length > 0;
+        const hasCsa = Object.keys(csaPayload).length > 0;
+        if (!hasNative && !hasCsa)
+            return;
+        console.log('[PersonalProfile → Entra] Pushing to Entra for', email, '| native:', JSON.stringify(nativePayload), '| csa:', JSON.stringify(csaPayload));
+        if (hasNative) {
+            await this.entraProfileSyncService.pushNativeAndCustomAttributes(email, nativePayload, hasCsa ? csaPayload : undefined, graphToken || undefined);
+        }
+        else {
+            await this.entraProfileSyncService.pushCustomSecurityAttributes(email, csaPayload, graphToken || undefined);
+        }
     }
     async loadPersonalProfile(email) {
         const hasEpTable = await this.tableExists('EmployeeProfile');
@@ -296,6 +411,7 @@ let EmployeeProfileService = class EmployeeProfileService {
         ci.LastName AS lastName,
         ci.Email AS email,
         COALESCE(ci.CellPhone, '') AS cellPhone,
+        COALESCE(ci.WorkPhone, '') AS workPhone,
         ${epSelect},
         ${ecSelect},
         ${hasEpTable ? "COALESCE(ha.AddressLine1, '') AS homeStreet, COALESCE(ha.AddressLine2, '') AS homeAddress2, COALESCE(ha.City, '') AS homeCity, COALESCE(ha.StateProvince, '') AS homeState, COALESCE(ha.PostalCode, '') AS homePostalCode, COALESCE(ha.Country, '') AS homeCountry" : "CAST('' AS nvarchar(200)) AS homeStreet, CAST('' AS nvarchar(200)) AS homeAddress2, CAST('' AS nvarchar(100)) AS homeCity, CAST('' AS nvarchar(100)) AS homeState, CAST('' AS nvarchar(20)) AS homePostalCode, CAST('' AS nvarchar(100)) AS homeCountry"}
@@ -318,6 +434,7 @@ let EmployeeProfileService = class EmployeeProfileService {
             lastName: readString(r, 'lastName', 'LastName'),
             email: readString(r, 'email', 'Email'),
             cellPhone: readString(r, 'cellPhone', 'CellPhone'),
+            workPhone: readString(r, 'workPhone', 'WorkPhone'),
             middleName: readString(r, 'middleName', 'MiddleName'),
             personalEmail: readString(r, 'personalEmail', 'PersonalEmail'),
             birthDate: readDateString(r, 'birthDate', 'BirthDate'),
@@ -349,8 +466,10 @@ exports.EmployeeProfileService = EmployeeProfileService;
 exports.EmployeeProfileService = EmployeeProfileService = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, typeorm_1.InjectDataSource)()),
+    __param(2, (0, common_1.Inject)((0, common_1.forwardRef)(() => entra_profile_sync_service_1.EntraProfileSyncService))),
     __metadata("design:paramtypes", [typeorm_2.DataSource,
-        audit_request_context_service_1.AuditRequestContext])
+        audit_request_context_service_1.AuditRequestContext,
+        entra_profile_sync_service_1.EntraProfileSyncService])
 ], EmployeeProfileService);
 function normalizeEmail(value) {
     const email = cleanText(value).toLowerCase();

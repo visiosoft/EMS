@@ -29,6 +29,8 @@ const attraction_service_1 = require("./attraction.service");
 const ems_app_created_store_1 = require("./ems-app-created.store");
 const tour_controller_1 = require("./tour.controller");
 const tour_service_1 = require("./tour.service");
+const tour_profile_files_controller_1 = require("./tour-profile-files.controller");
+const tour_profile_files_service_1 = require("./tour-profile-files.service");
 let AttractionToursModule = class AttractionToursModule {
 };
 exports.AttractionToursModule = AttractionToursModule;
@@ -53,9 +55,9 @@ exports.AttractionToursModule = AttractionToursModule = __decorate([
                 engagement_project_entity_1.EngagementProject,
             ]),
         ],
-        controllers: [attraction_controller_1.AttractionController, tour_controller_1.TourController],
-        providers: [attraction_service_1.AttractionService, tour_service_1.TourService, ems_app_created_store_1.EmsAppCreatedStore],
-        exports: [attraction_service_1.AttractionService, tour_service_1.TourService, ems_app_created_store_1.EmsAppCreatedStore],
+        controllers: [attraction_controller_1.AttractionController, tour_controller_1.TourController, tour_profile_files_controller_1.TourProfileFilesController],
+        providers: [attraction_service_1.AttractionService, tour_service_1.TourService, tour_profile_files_service_1.TourProfileFilesService, ems_app_created_store_1.EmsAppCreatedStore],
+        exports: [attraction_service_1.AttractionService, tour_service_1.TourService, tour_profile_files_service_1.TourProfileFilesService, ems_app_created_store_1.EmsAppCreatedStore],
     })
 ], AttractionToursModule);
 //# sourceMappingURL=attraction-tours.module.js.map

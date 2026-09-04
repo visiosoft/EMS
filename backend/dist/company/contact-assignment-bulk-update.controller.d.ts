@@ -7,6 +7,7 @@ declare class UpdateContactAssignmentBulkDto {
     workPhone?: string | null;
     roleIds: number[];
     departmentIds: number[];
+    companyId?: number;
 }
 export declare class ContactAssignmentBulkUpdateController {
     private readonly dataSource;

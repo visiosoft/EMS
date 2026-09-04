@@ -38,6 +38,7 @@ const organization_chart_module_1 = require("./organization-chart/organization-c
 const ramp_module_1 = require("./ramp/ramp.module");
 const learning_module_1 = require("./learning/learning.module");
 const common_module_1 = require("./common/common.module");
+const ai_module_1 = require("./ai/ai.module");
 const parseBoolean = (value, fallback) => {
     if (!value)
         return fallback;
@@ -114,6 +115,7 @@ exports.AppModule = AppModule = __decorate([
             organization_chart_module_1.OrganizationChartModule,
             ramp_module_1.RampModule,
             learning_module_1.LearningModule,
+            ai_module_1.AiModule,
         ],
         controllers: [app_controller_1.AppController],
         providers: [app_service_1.AppService, audit_subscriber_1.AuditSubscriber],

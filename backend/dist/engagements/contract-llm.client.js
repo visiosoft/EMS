@@ -112,10 +112,37 @@ let ContractLlmClient = ContractLlmClient_1 = class ContractLlmClient {
             '- "confidence" is 0-1: how sure you are the value is correct AND correctly mapped to this field. Lower it for inferred values (e.g. an implicit country).',
             '- "sourceQuote" MUST be a short verbatim span copied from the document that supports the value (or empty string if the value is empty).',
             '- "sourcePage" is the 1-based page the value came from, or 0 if unknown.',
+            '- "performances" and "additionallyInsured" are the two exceptions: their "value" is an array (see tool schema), not a string. List every performance separately (one array entry per date/time), and every additional-insured party separately, with the Talent Agency listed first if known.',
             '',
             'Fields to extract:',
             fieldLines,
         ].join('\n');
+    }
+    buildValueSchema(def) {
+        if (def.type === 'performance-list') {
+            return {
+                type: 'array',
+                description: `${def.label}: ${def.description}`,
+                items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['date', 'time', 'formatted'],
+                    properties: {
+                        date: { type: 'string', description: 'ISO date YYYY-MM-DD, or empty string if unknown' },
+                        time: { type: 'string', description: '24-hour HH:MM, or empty string if unknown' },
+                        formatted: { type: 'string', description: 'Human-readable, e.g. "Wednesday, May 7, 2025 at 7:30 PM"' },
+                    },
+                },
+            };
+        }
+        if (def.type === 'insured-list') {
+            return {
+                type: 'array',
+                description: `${def.label}: ${def.description}`,
+                items: { type: 'string' },
+            };
+        }
+        return { type: 'string', description: `${def.label}: ${def.description}` };
     }
     buildToolSchema() {
         const properties = {};
@@ -125,7 +152,7 @@ let ContractLlmClient = ContractLlmClient_1 = class ContractLlmClient {
                 additionalProperties: false,
                 required: ['value', 'confidence', 'sourceQuote', 'sourcePage'],
                 properties: {
-                    value: { type: 'string', description: `${def.label}: ${def.description}` },
+                    value: this.buildValueSchema(def),
                     confidence: { type: 'number', description: '0-1 confidence' },
                     sourceQuote: { type: 'string', description: 'Verbatim supporting span from the document' },
                     sourcePage: { type: 'integer', description: '1-based source page, or 0 if unknown' },

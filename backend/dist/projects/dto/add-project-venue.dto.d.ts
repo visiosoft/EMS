@@ -2,6 +2,7 @@ import { CreatePerformanceOptionDto } from './create-project.dto';
 export declare class AddProjectVenueDto {
     venueCompanyId: number;
     venueStatus: string;
+    offerCreationStatus?: string;
     performanceOptions?: CreatePerformanceOptionDto[];
     configName?: string | null;
     dealType?: string | null;

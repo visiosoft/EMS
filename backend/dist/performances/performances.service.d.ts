@@ -1,4 +1,4 @@
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Performance } from '../entities/performance.entity';
 export interface PerformanceCalendarRow {
     performanceId: number;
@@ -16,10 +16,17 @@ export interface PerformanceCalendarRow {
     venueName: string | null;
     city: string | null;
     stateProvince: string | null;
+    announcementDate: string | null;
+    presaleStartDate: string | null;
+    presaleEndDate: string | null;
+    onSaleDate: string | null;
 }
 export declare class PerformancesService {
     private readonly performanceRepo;
-    constructor(performanceRepo: Repository<Performance>);
+    private readonly dataSource;
+    private preSaleEndDateColPresent;
+    constructor(performanceRepo: Repository<Performance>, dataSource: DataSource);
+    private performanceTicketingHasPreSaleEndDateColumn;
     private buildCalendarQuery;
     private applyCalendarListSort;
     private applyVisibilityFilter;

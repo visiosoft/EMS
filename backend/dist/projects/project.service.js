@@ -52,23 +52,24 @@ const typeorm_1 = require("@nestjs/typeorm");
 const typeorm_2 = require("typeorm");
 const admin_users_service_1 = require("../admin-users/admin-users.service");
 const ems_app_created_store_1 = require("../attraction-tours/ems-app-created.store");
-const engagement_entity_1 = require("../entities/engagement.entity");
 const engagement_project_entity_1 = require("../entities/engagement-project.entity");
 const engagement_project_dma_entity_1 = require("../entities/engagement-project-dma.entity");
 const engagement_project_venue_entity_1 = require("../entities/engagement-project-venue.entity");
 const engagement_project_performance_option_entity_1 = require("../entities/engagement-project-performance-option.entity");
-const engagement_venue_entity_1 = require("../entities/engagement-venue.entity");
 const engagement_xref_entity_1 = require("../entities/engagement-xref.entity");
 const attraction_entity_1 = require("../entities/attraction.entity");
 const company_entity_1 = require("../entities/company.entity");
+const contact_entity_1 = require("../entities/contact.entity");
+const contact_assignment_entity_1 = require("../entities/contact-assignment.entity");
 const dma_entity_1 = require("../entities/dma.entity");
-const performance_entity_1 = require("../entities/performance.entity");
 const tour_entity_1 = require("../entities/tour.entity");
+const tour_talent_agent_entity_1 = require("../entities/tour-talent-agent.entity");
 const link_entity_1 = require("../entities/link.entity");
 const venue_entity_1 = require("../entities/venue.entity");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
 const confirmed_offer_multer_config_1 = require("./confirmed-offer-multer.config");
+const offer_link_multer_config_1 = require("./offer-link-multer.config");
 const audit_request_context_service_1 = require("../audit/audit-request-context.service");
 const project_stage_constants_1 = require("./project-stage.constants");
 const ENGAGEMENT_VENUE_OPTION_STATUS_ALLOWLIST = [
@@ -87,6 +88,9 @@ let ProjectService = class ProjectService {
     attractionRepo;
     venueRepo;
     companyRepo;
+    contactRepo;
+    contactAssignmentRepo;
+    tourTalentAgentRepo;
     linkRepo;
     dataSource;
     auditContext;
@@ -101,7 +105,7 @@ let ProjectService = class ProjectService {
     companyTypeLinkTableCache = undefined;
     static CREATED_BY_NAME_CACHE_TTL_MS = 5 * 60_000;
     createdByNameCache = null;
-    constructor(projectRepo, projectVenueRepo, optionRepo, projectDmaRepo, tourRepo, attractionRepo, venueRepo, companyRepo, linkRepo, dataSource, auditContext, adminUsersService, emsCreated) {
+    constructor(projectRepo, projectVenueRepo, optionRepo, projectDmaRepo, tourRepo, attractionRepo, venueRepo, companyRepo, contactRepo, contactAssignmentRepo, tourTalentAgentRepo, linkRepo, dataSource, auditContext, adminUsersService, emsCreated) {
         this.projectRepo = projectRepo;
         this.projectVenueRepo = projectVenueRepo;
         this.optionRepo = optionRepo;
@@ -110,6 +114,9 @@ let ProjectService = class ProjectService {
         this.attractionRepo = attractionRepo;
         this.venueRepo = venueRepo;
         this.companyRepo = companyRepo;
+        this.contactRepo = contactRepo;
+        this.contactAssignmentRepo = contactAssignmentRepo;
+        this.tourTalentAgentRepo = tourTalentAgentRepo;
         this.linkRepo = linkRepo;
         this.dataSource = dataSource;
         this.auditContext = auditContext;
@@ -522,119 +529,6 @@ let ProjectService = class ProjectService {
             });
         }
     }
-    async convertProjectToEngagement(manager, project, openingPerformances = []) {
-        const existing = await this.getConvertedEngagementId(project.engagementProjectId, manager);
-        if (existing != null)
-            return existing;
-        const venues = await manager.find(engagement_project_venue_entity_1.EngagementProjectVenue, {
-            where: { engagementProjectId: project.engagementProjectId },
-            order: { engagementProjectVenueId: 'ASC' },
-        });
-        if (venues.length === 0) {
-            throw new common_1.BadRequestException({
-                message: 'Add at least one venue proposal before converting this project into an engagement.',
-            });
-        }
-        const venueCompanyIds = new Set();
-        for (const venue of venues) {
-            if (venueCompanyIds.has(venue.venueCompanyId)) {
-                throw new common_1.BadRequestException({
-                    message: 'A venue has been proposed more than once. Remove the duplicate venue before converting this project into an engagement.',
-                });
-            }
-            venueCompanyIds.add(venue.venueCompanyId);
-        }
-        let firstEngagementId = null;
-        for (const venue of venues) {
-            const existingVenueXref = await manager.findOne(engagement_xref_entity_1.EngagementXref, {
-                where: {
-                    sourceEngagementId: `EngagementProjectVenue:${venue.engagementProjectVenueId}`,
-                },
-            });
-            if (existingVenueXref) {
-                if (firstEngagementId === null) {
-                    firstEngagementId = existingVenueXref.engagementId;
-                }
-                continue;
-            }
-            const performanceRows = [];
-            const showDateTimes = new Set();
-            const addPerformanceRow = (dateRaw, timeRaw, statusRaw, missingMessage) => {
-                const date = this.normalizeDateOnly(dateRaw);
-                const time = this.normalizeTime(timeRaw);
-                if (!date || !time) {
-                    throw new common_1.BadRequestException({
-                        message: missingMessage,
-                    });
-                }
-                const key = `${date}T${time}`;
-                if (showDateTimes.has(key)) {
-                    throw new common_1.BadRequestException({
-                        message: 'Two proposed performances for a venue use the same date and time. Change one before converting this project.',
-                    });
-                }
-                showDateTimes.add(key);
-                performanceRows.push({
-                    date,
-                    time,
-                    status: (statusRaw ?? '').trim() || project_stage_constants_1.DEFAULT_PUBLIC_TICKETING_STATUS,
-                });
-            };
-            for (const opening of openingPerformances ?? []) {
-                addPerformanceRow(opening.performanceDate, opening.performanceTime, opening.performanceStatus, 'Every opening show needs both a date and time before this project can be converted into an engagement.');
-            }
-            const options = await manager.find(engagement_project_performance_option_entity_1.EngagementProjectPerformanceOption, {
-                where: {
-                    engagementProjectId: project.engagementProjectId,
-                    engagementProjectVenueId: venue.engagementProjectVenueId,
-                },
-                order: { proposedDate: 'ASC', performanceOptionId: 'ASC' },
-            });
-            for (const option of options) {
-                addPerformanceRow(option.proposedDate, option.proposedTime, project_stage_constants_1.DEFAULT_PRIVATE_TICKETING_STATUS, 'Every proposed performance needs both a date and time before this project can be converted into an engagement.');
-            }
-            if (performanceRows.length === 0) {
-                throw new common_1.BadRequestException({
-                    message: 'Add at least one opening show or proposed performance for each venue before converting this project into an engagement.',
-                });
-            }
-            const savedEngagement = await manager.save(engagement_entity_1.Engagement, manager.create(engagement_entity_1.Engagement, {
-                engagementStatus: 'Unknown',
-                engagementScaling: null,
-                tourId: project.tourId,
-                sellableCapacity: null,
-                grossPotential: null,
-            }));
-            if (firstEngagementId === null) {
-                firstEngagementId = savedEngagement.engagementId;
-            }
-            await manager.save(engagement_venue_entity_1.EngagementVenue, manager.create(engagement_venue_entity_1.EngagementVenue, {
-                engagementId: savedEngagement.engagementId,
-                venueCompanyId: venue.venueCompanyId,
-                isPrimary: true,
-            }));
-            for (const row of performanceRows) {
-                await manager.save(performance_entity_1.Performance, manager.create(performance_entity_1.Performance, {
-                    engagementId: savedEngagement.engagementId,
-                    performanceStatus: row.status,
-                    performanceDate: row.date,
-                    performanceTime: row.time,
-                }));
-            }
-            await manager.save(engagement_xref_entity_1.EngagementXref, manager.create(engagement_xref_entity_1.EngagementXref, {
-                sourceEngagementId: `EngagementProjectVenue:${venue.engagementProjectVenueId}`,
-                engagementId: savedEngagement.engagementId,
-            }));
-            this.emsCreated.recordEngagement(savedEngagement.engagementId);
-        }
-        if (firstEngagementId !== null) {
-            await manager.save(engagement_xref_entity_1.EngagementXref, manager.create(engagement_xref_entity_1.EngagementXref, {
-                sourceEngagementId: this.projectXrefKey(project.engagementProjectId),
-                engagementId: firstEngagementId,
-            }));
-        }
-        return firstEngagementId;
-    }
     isOidLike(value) {
         const trimmed = String(value ?? '').trim();
         return GUID_RE.test(trimmed);
@@ -758,6 +652,61 @@ let ProjectService = class ProjectService {
         }
         return [...seen].sort((a, b) => a - b);
     }
+    normalizeContactIds(ids) {
+        if (!ids?.length)
+            return [];
+        const seen = new Set();
+        for (const n of ids) {
+            if (typeof n === 'number' && Number.isInteger(n) && n >= 1)
+                seen.add(n);
+        }
+        return [...seen].sort((a, b) => a - b);
+    }
+    async assertTalentAgentContactsBelongToAgency(contactIds, talentAgencyCompanyId) {
+        const ids = this.normalizeContactIds(contactIds);
+        if (ids.length === 0)
+            return ids;
+        if (talentAgencyCompanyId == null ||
+            !Number.isInteger(Number(talentAgencyCompanyId)) ||
+            Number(talentAgencyCompanyId) < 1) {
+            throw new common_1.BadRequestException({
+                message: 'Select a talent agency before assigning talent agents.',
+            });
+        }
+        const contactCount = await this.contactRepo.count({
+            where: { contactId: (0, typeorm_2.In)(ids) },
+        });
+        if (contactCount !== ids.length) {
+            throw new common_1.BadRequestException({
+                message: 'One or more selected talent agents no longer exist.',
+            });
+        }
+        const rows = await this.contactAssignmentRepo
+            .createQueryBuilder('ca')
+            .select('ca.contactId', 'contactId')
+            .where('ca.companyId = :companyId', {
+            companyId: Number(talentAgencyCompanyId),
+        })
+            .andWhere('ca.contactId IN (:...ids)', { ids })
+            .groupBy('ca.contactId')
+            .getRawMany();
+        const assigned = new Set(rows.map((row) => Number(row.contactId)));
+        const missing = ids.filter((id) => !assigned.has(id));
+        if (missing.length > 0) {
+            throw new common_1.BadRequestException({
+                message: 'One or more selected talent agents are not assigned to this talent agency.',
+            });
+        }
+        return ids;
+    }
+    async syncTourTalentAgents(manager, tourId, contactIds, talentAgencyCompanyId) {
+        const ids = await this.assertTalentAgentContactsBelongToAgency(contactIds, talentAgencyCompanyId);
+        const repo = manager.getRepository(tour_talent_agent_entity_1.TourTalentAgent);
+        await repo.delete({ tourId });
+        if (ids.length === 0)
+            return;
+        await repo.save(ids.map((contactId) => repo.create({ tourId, contactId })));
+    }
     async assertDmasExist(manager, dmaIds) {
         if (dmaIds.length === 0)
             return;
@@ -876,19 +825,31 @@ let ProjectService = class ProjectService {
                 .map((v) => Number(v.venueCompanyId))
                 .filter((id) => Number.isInteger(id) && id > 0)),
         ];
-        const [venueCompanies, venueRows] = venueCompanyIds.length > 0
+        const [venueCompanies, venueRows, complexRows] = venueCompanyIds.length > 0
             ? await Promise.all([
                 this.companyRepo.find({
                     where: { companyId: (0, typeorm_2.In)(venueCompanyIds) },
-                    relations: { dma: true },
+                    relations: { dma: true, physicalAddress: true },
                 }),
                 this.venueRepo.find({
                     where: { companyId: (0, typeorm_2.In)(venueCompanyIds) },
                 }),
+                this.dataSource.query(`SELECT vcm.VenueCompanyID,
+                      STRING_AGG(LTRIM(RTRIM(cc.CompanyName)), N', ')
+                        WITHIN GROUP (ORDER BY LTRIM(RTRIM(cc.CompanyName))) AS ComplexNames
+                 FROM dbo.VenueComplexMember vcm
+                 INNER JOIN dbo.Company cc ON cc.CompanyID = vcm.ComplexCompanyID
+                WHERE vcm.VenueCompanyID IN (${venueCompanyIds
+                    .map((_, i) => `@${i}`)
+                    .join(', ')})
+                GROUP BY vcm.VenueCompanyID`, venueCompanyIds),
             ])
-            : [[], []];
+            : [[], [], []];
         const venueCompanyById = new Map(venueCompanies.map((company) => [company.companyId, company]));
         const venueByCompanyId = new Map(venueRows.map((venue) => [venue.companyId, venue]));
+        const complexNamesByVenueCompanyId = new Map((complexRows ?? [])
+            .filter((r) => r?.VenueCompanyID != null && r?.ComplexNames)
+            .map((r) => [Number(r.VenueCompanyID), String(r.ComplexNames).trim()]));
         const venueRowIds = dbVenues.map((v) => v.engagementProjectVenueId);
         const venueXrefs = venueRowIds.length > 0
             ? await this.dataSource.manager.find(engagement_xref_entity_1.EngagementXref, {
@@ -902,9 +863,25 @@ let ProjectService = class ProjectService {
             const rowId = Number(parts[1]);
             return [rowId, xref.engagementId];
         }));
+        const allOfferLinkIds = dbVenues
+            .flatMap((v) => [
+            v.confirmedOfferLinkId,
+            v.draftedOfferLinkId,
+            v.inConsiderationOfferLinkId,
+        ])
+            .filter((id) => id != null && id > 0);
+        const offerLinks = allOfferLinkIds.length > 0
+            ? await this.linkRepo.find({
+                where: { linkId: (0, typeorm_2.In)(allOfferLinkIds) },
+                select: ['linkId', 'linkName'],
+            })
+            : [];
+        const linkNameById = new Map(offerLinks.map((l) => [l.linkId, l.linkName]));
         const venuesWithDetails = dbVenues.map((v) => {
             const company = venueCompanyById.get(v.venueCompanyId);
             const venue = venueByCompanyId.get(v.venueCompanyId);
+            const address = company?.physicalAddress;
+            const complexNames = complexNamesByVenueCompanyId.get(v.venueCompanyId);
             return {
                 engagementProjectVenueId: v.engagementProjectVenueId,
                 engagementProjectId: v.engagementProjectId,
@@ -913,7 +890,21 @@ let ProjectService = class ProjectService {
                 venueName: venue?.venueName ?? null,
                 venueDmaId: company?.dmaid ?? null,
                 venueDmaMarketName: company?.dma?.marketName ?? null,
+                venueCity: address?.city?.trim() || null,
+                venueStateProvince: address?.stateProvince?.trim() || null,
+                venueSeatingCapacity: typeof venue?.seatingCapacity === 'number'
+                    ? venue.seatingCapacity
+                    : null,
+                venueEntertainmentComplexNames: complexNames || null,
                 venueStatus: v.venueStatus,
+                offerCreationStatus: v.offerCreationStatus ?? project.projectStage ?? 'Requested',
+                offerReviewStatus: v.offerReviewStatus ?? project.offerReviewStatus ?? null,
+                confirmedOfferLinkId: v.confirmedOfferLinkId ?? project.confirmedOfferLinkId ?? null,
+                confirmedOfferLinkName: linkNameById.get(v.confirmedOfferLinkId ?? 0) ?? null,
+                draftedOfferLinkId: v.draftedOfferLinkId ?? null,
+                draftedOfferLinkName: linkNameById.get(v.draftedOfferLinkId ?? 0) ?? null,
+                inConsiderationOfferLinkId: v.inConsiderationOfferLinkId ?? null,
+                inConsiderationOfferLinkName: linkNameById.get(v.inConsiderationOfferLinkId ?? 0) ?? null,
                 configName: null,
                 dealType: null,
                 guarantee: null,
@@ -943,9 +934,9 @@ let ProjectService = class ProjectService {
             attractionName: attraction?.attractionName ?? null,
             talentAgencyCompanyId: effectiveMgmtId,
             talentAgencyCompanyName: effectiveMgmtName,
-            projectStage: project.projectStage,
-            offerReviewStatus: project.offerReviewStatus,
-            confirmedOfferLinkId: project.confirmedOfferLinkId,
+            projectStage: project.projectStage ?? 'Requested',
+            offerReviewStatus: project.offerReviewStatus ?? null,
+            confirmedOfferLinkId: project.confirmedOfferLinkId ?? null,
             createdDate: project.createdDate,
             createdBy,
             name: null,
@@ -968,10 +959,7 @@ let ProjectService = class ProjectService {
                 message: 'The selected tour already has a different talent agency on file. Use that agency or update the tour first.',
             });
         }
-        this.assertValidProjectStage(dto.projectStage);
-        if (dto.offerReviewStatus !== undefined && dto.offerReviewStatus != null) {
-            this.assertValidOfferReviewStatus(dto.offerReviewStatus, dto.projectStage);
-        }
+        this.assertValidProjectStage(dto.projectStage ?? 'Requested');
         const normalizedTourStartDate = this.normalizeDateOnly(dto.tourStartDate);
         const normalizedTourEndDate = this.normalizeDateOnly(dto.tourEndDate);
         this.assertValidTourDateRange(normalizedTourStartDate, normalizedTourEndDate);
@@ -994,18 +982,19 @@ let ProjectService = class ProjectService {
             return await this.dataSource.transaction(async (manager) => {
                 const project = manager.create(engagement_project_entity_1.EngagementProject, {
                     tourId: dto.tourId,
-                    projectStage: dto.projectStage,
-                    offerReviewStatus: dto.offerReviewStatus ?? null,
+                    projectStage: dto.projectStage ?? 'Requested',
                     createdDate: new Date(),
                     createdBy: this.resolveProjectCreatedBy(dto.createdBy),
                 });
                 const savedProject = await manager.save(engagement_project_entity_1.EngagementProject, project);
                 await this.insertProjectDmasInTransaction(manager, savedProject.engagementProjectId, dto.dmaIds);
+                const defaultOfferCreationStatus = dto.projectStage ?? 'Requested';
                 for (const v of dto.venues ?? []) {
                     const pv = manager.create(engagement_project_venue_entity_1.EngagementProjectVenue, {
                         engagementProjectId: savedProject.engagementProjectId,
                         venueCompanyId: v.venueCompanyId,
                         venueStatus: v.venueStatus,
+                        offerCreationStatus: v.offerCreationStatus ?? defaultOfferCreationStatus,
                     });
                     const savedPv = await manager.save(engagement_project_venue_entity_1.EngagementProjectVenue, pv);
                     for (const opt of v.performanceOptions ?? []) {
@@ -1025,13 +1014,14 @@ let ProjectService = class ProjectService {
                     tourEndDate: normalizedTourEndDate,
                 });
                 await this.setProjectAgentContactId(manager, savedProject.engagementProjectId, normalizedAgentContactId);
-                const engagementId = (0, project_stage_constants_1.isProjectConversionReview)(dto.offerReviewStatus)
-                    ? await this.convertProjectToEngagement(manager, savedProject, dto.openingPerformances)
-                    : null;
+                if (dto.talentAgentContactIds !== undefined) {
+                    await this.syncTourTalentAgents(manager, dto.tourId, dto.talentAgentContactIds, dto.talentAgencyCompanyId);
+                }
+                const engagementId = null;
                 return {
                     engagementProjectId: savedProject.engagementProjectId,
                     engagementId,
-                    converted: engagementId != null,
+                    converted: false,
                 };
             });
         }
@@ -1039,17 +1029,8 @@ let ProjectService = class ProjectService {
             if (err instanceof typeorm_2.QueryFailedError) {
                 const d = String(err.driverError ?? err.message);
                 this.logger.warn(`Create project failed: ${d}`);
-                const isStageCheck = /CHECK constraint/i.test(d) && /OfferCreationStatus/i.test(d);
-                const isReviewCheck = /CHECK constraint/i.test(d) && /OfferReviewStatus/i.test(d);
-                const isOptionStatusCheck = /CHECK constraint/i.test(d) && /OptionStatus/i.test(d);
                 throw new common_1.BadRequestException({
-                    message: isStageCheck
-                        ? `This project stage isn't accepted by the database. Use one of: ${project_stage_constants_1.PROJECT_STAGE_VALUES.join(', ')}.`
-                        : isReviewCheck
-                            ? `This offer review status isn't accepted by the database. Use one of: ${project_stage_constants_1.OFFER_REVIEW_STATUS_VALUES.join(', ')}.`
-                            : isOptionStatusCheck
-                                ? 'A proposed date option used a status the database does not allow. Refresh the page and try again, or ask an administrator which option statuses are valid.'
-                                : 'Could not create the project. Check that the tour exists and that the information you entered matches your organization’s rules.',
+                    message: 'Could not update the project. Check the information you entered, or ask your administrator if something is blocked.',
                     detail: d,
                 });
             }
@@ -1058,27 +1039,6 @@ let ProjectService = class ProjectService {
     }
     async update(id, dto) {
         const project = await this.assertProjectExists(id);
-        const shouldConvert = dto.offerReviewStatus !== undefined &&
-            (0, project_stage_constants_1.isProjectConversionReview)(dto.offerReviewStatus);
-        if (dto.projectStage !== undefined) {
-            this.assertValidProjectStage(dto.projectStage);
-            project.projectStage = dto.projectStage;
-        }
-        if (dto.offerReviewStatus !== undefined && dto.offerReviewStatus != null) {
-            const effectiveStage = dto.projectStage ?? project.projectStage;
-            this.assertValidOfferReviewStatus(dto.offerReviewStatus, effectiveStage);
-            if (dto.offerReviewStatus !== 'Confirmed' &&
-                project.confirmedOfferLinkId != null) {
-                await this.removeConfirmedOfferPdf(project);
-            }
-            project.offerReviewStatus = dto.offerReviewStatus;
-        }
-        else if (dto.offerReviewStatus === null) {
-            if (project.confirmedOfferLinkId != null) {
-                await this.removeConfirmedOfferPdf(project);
-            }
-            project.offerReviewStatus = null;
-        }
         if (dto.tourId !== undefined) {
             await this.assertTourExists(dto.tourId);
             project.tourId = dto.tourId;
@@ -1140,12 +1100,20 @@ let ProjectService = class ProjectService {
                 if (normalizedAgentContactId !== undefined) {
                     await this.setProjectAgentContactId(manager, id, normalizedAgentContactId);
                 }
+                if (dto.talentAgentContactIds !== undefined) {
+                    const effectiveTourId = dto.tourId ?? project.tourId;
+                    let effectiveAgencyId = dto.talentAgencyCompanyId ?? null;
+                    if (effectiveAgencyId == null || effectiveAgencyId < 1) {
+                        const tourRow = await manager.findOne(tour_entity_1.Tour, {
+                            where: { tourId: effectiveTourId },
+                        });
+                        effectiveAgencyId = tourRow?.talentAgencyCompanyId ?? null;
+                    }
+                    await this.syncTourTalentAgents(manager, effectiveTourId, dto.talentAgentContactIds, effectiveAgencyId);
+                }
                 await manager.save(engagement_project_entity_1.EngagementProject, project);
-                return shouldConvert
-                    ? await this.convertProjectToEngagement(manager, project, dto.openingPerformances)
-                    : null;
             });
-            return { engagementId, converted: engagementId != null };
+            return { engagementId: null, converted: false };
         }
         catch (e) {
             if (e instanceof common_1.BadRequestException)
@@ -1153,14 +1121,8 @@ let ProjectService = class ProjectService {
             if (e instanceof typeorm_2.QueryFailedError) {
                 const d = String(e.driverError ?? e.message);
                 this.logger.warn(`Update project failed (id=${id}): ${d}`);
-                const isStageCheck = /CHECK constraint/i.test(d) && /OfferCreationStatus/i.test(d);
-                const isReviewCheck = /CHECK constraint/i.test(d) && /OfferReviewStatus/i.test(d);
                 throw new common_1.BadRequestException({
-                    message: isStageCheck
-                        ? `This project stage isn’t accepted by the database. Use one of: ${project_stage_constants_1.PROJECT_STAGE_VALUES.join(', ')}.`
-                        : isReviewCheck
-                            ? `This offer review status isn’t accepted by the database. Use one of: ${project_stage_constants_1.OFFER_REVIEW_STATUS_VALUES.join(', ')}.`
-                            : 'Could not update the project. Check the information you entered, or ask your administrator if something is blocked by your system’s rules.',
+                    message: 'Could not update the project. Check the information you entered, or ask your administrator if something is blocked.',
                     detail: d,
                 });
             }
@@ -1215,7 +1177,6 @@ let ProjectService = class ProjectService {
                         .orWhere(`LOWER(ISNULL(t.tourName, '')) LIKE LOWER(:${param}) ESCAPE '\\'`, { [param]: like })
                         .orWhere(`LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:${param}) ESCAPE '\\'`, { [param]: like })
                         .orWhere(`LOWER(ISNULL(tmg.companyName, '')) LIKE LOWER(:${param}) ESCAPE '\\'`, { [param]: like })
-                        .orWhere(`LOWER(ISNULL(ep.projectStage, '')) LIKE LOWER(:${param}) ESCAPE '\\'`, { [param]: like })
                         .orWhere(`LOWER(ISNULL(ep.createdBy, '')) LIKE LOWER(:${param}) ESCAPE '\\'`, { [param]: like })
                         .orWhere(`CONVERT(VARCHAR(30), ep.createdDate, 126) LIKE :${param} ESCAPE '\\'`, { [param]: like });
                 }));
@@ -1264,8 +1225,8 @@ let ProjectService = class ProjectService {
                 attractionName: p.tour?.attraction?.attractionName ?? null,
                 talentAgencyCompanyId: p.tour?.talentAgencyCompanyId ?? null,
                 talentAgencyCompanyName: p.tour?.talentAgencyCompany?.companyName ?? null,
-                projectStage: p.projectStage,
-                offerReviewStatus: p.offerReviewStatus,
+                projectStage: p.projectStage ?? 'Requested',
+                offerReviewStatus: p.offerReviewStatus ?? null,
                 createdDate: p.createdDate,
                 createdBy: await this.resolveCreatedByDisplayValue(p.createdBy, createdByNameMap),
                 name: null,
@@ -1316,6 +1277,7 @@ let ProjectService = class ProjectService {
                     engagementProjectId: projectId,
                     venueCompanyId: dto.venueCompanyId,
                     venueStatus: dto.venueStatus,
+                    offerCreationStatus: dto.offerCreationStatus ?? 'Requested',
                 });
                 const saved = await manager.save(pv);
                 for (const opt of dto.performanceOptions ?? []) {
@@ -1345,11 +1307,66 @@ let ProjectService = class ProjectService {
     }
     async updateVenue(projectId, venueId, dto) {
         const pv = await this.assertVenueInProject(projectId, venueId);
+        const oldOfferCreationStatus = pv.offerCreationStatus ?? 'Requested';
+        const oldOfferReviewStatus = pv.offerReviewStatus ?? null;
         if (dto.venueStatus !== undefined) {
             await this.assertValidVenueStatus(dto.venueStatus);
             pv.venueStatus = dto.venueStatus;
         }
+        if (dto.offerCreationStatus !== undefined) {
+            this.assertValidProjectStage(dto.offerCreationStatus);
+            pv.offerCreationStatus = dto.offerCreationStatus;
+        }
+        if (dto.offerReviewStatus !== undefined && dto.offerReviewStatus != null) {
+            const effectiveStage = dto.offerCreationStatus ?? pv.offerCreationStatus ?? 'Requested';
+            this.assertValidOfferReviewStatus(dto.offerReviewStatus, effectiveStage);
+            if (dto.offerReviewStatus !== 'Confirmed' &&
+                pv.confirmedOfferLinkId != null) {
+                await this.removeVenueConfirmedOfferPdf(pv);
+            }
+            pv.offerReviewStatus = dto.offerReviewStatus;
+        }
+        else if (dto.offerReviewStatus === null) {
+            if (pv.confirmedOfferLinkId != null) {
+                await this.removeVenueConfirmedOfferPdf(pv);
+            }
+            pv.offerReviewStatus = null;
+        }
+        const newOfferCreationStatus = pv.offerCreationStatus ?? 'Requested';
+        const newOfferReviewStatus = pv.offerReviewStatus ?? null;
+        if (oldOfferCreationStatus === 'Drafted' &&
+            newOfferCreationStatus !== 'Drafted' &&
+            pv.draftedOfferLinkId != null) {
+            await this.removeVenueOfferLink(pv, 'draftedOfferLinkId', offer_link_multer_config_1.DRAFTED_OFFER_UPLOAD_DIR);
+        }
+        const wasInConsideration = oldOfferCreationStatus === 'Submitted' &&
+            oldOfferReviewStatus === 'In Consideration';
+        const stillInConsideration = newOfferCreationStatus === 'Submitted' &&
+            newOfferReviewStatus === 'In Consideration';
+        if (wasInConsideration &&
+            !stillInConsideration &&
+            pv.inConsiderationOfferLinkId != null) {
+            await this.removeVenueOfferLink(pv, 'inConsiderationOfferLinkId', offer_link_multer_config_1.IN_CONSIDERATION_OFFER_UPLOAD_DIR);
+        }
         await this.projectVenueRepo.save(pv);
+        if (dto.offerCreationStatus !== undefined) {
+            await this.syncProjectOfferCreationStatus(projectId);
+        }
+        if (dto.offerReviewStatus === 'Confirmed') {
+            if (pv.confirmedOfferLinkId == null) {
+                throw new common_1.BadRequestException({
+                    message: 'Please upload the confirmed offer PDF before confirming this venue.',
+                });
+            }
+            const optionsCount = await this.optionRepo.count({
+                where: { engagementProjectVenueId: venueId },
+            });
+            if (optionsCount === 0) {
+                throw new common_1.BadRequestException({
+                    message: 'Please add at least one proposed date before confirming this venue.',
+                });
+            }
+        }
         if (dto.engagementId) {
             const xrefKey = `EngagementProjectVenue:${venueId}`;
             const xrefRepo = this.dataSource.manager.getRepository(engagement_xref_entity_1.EngagementXref);
@@ -1366,7 +1383,9 @@ let ProjectService = class ProjectService {
                 xref.engagementId = dto.engagementId;
             }
             await xrefRepo.save(xref);
+            return { engagementId: dto.engagementId, converted: true };
         }
+        return { engagementId: null, converted: false };
     }
     async removeVenue(projectId, venueId) {
         await this.assertVenueInProject(projectId, venueId);
@@ -1377,6 +1396,16 @@ let ProjectService = class ProjectService {
             engagementProjectId: projectId,
             engagementProjectVenueId: venueId,
         });
+        await this.syncProjectOfferCreationStatus(projectId);
+    }
+    async syncProjectOfferCreationStatus(projectId) {
+        const venues = await this.projectVenueRepo.find({
+            where: { engagementProjectId: projectId },
+            select: ['offerCreationStatus'],
+        });
+        const allSubmitted = venues.length > 0 &&
+            venues.every((v) => v.offerCreationStatus === 'Submitted');
+        await this.projectRepo.update({ engagementProjectId: projectId }, { projectStage: allSubmitted ? 'Submitted' : 'Requested' });
     }
     async addPerformanceOption(projectId, dto) {
         await this.assertProjectExists(projectId);
@@ -1428,8 +1457,8 @@ let ProjectService = class ProjectService {
             .replace(/\[/g, '\\[')
             .replace(/\]/g, '\\]');
     }
-    async uploadConfirmedOfferPdf(projectId, file) {
-        const project = await this.assertProjectExists(projectId);
+    async uploadConfirmedOfferPdf(projectId, venueId, file) {
+        const pv = await this.assertVenueInProject(projectId, venueId);
         const publicPath = `/uploads/confirmed-offers/${file.filename}`.slice(0, 2048);
         const link = this.linkRepo.create({
             linkType: 'ConfirmedOffer',
@@ -1438,17 +1467,17 @@ let ProjectService = class ProjectService {
             linkPath: publicPath,
         });
         const savedLink = await this.linkRepo.save(link);
-        project.confirmedOfferLinkId = savedLink.linkId;
-        await this.projectRepo.save(project);
+        pv.confirmedOfferLinkId = savedLink.linkId;
+        await this.projectVenueRepo.save(pv);
         return { linkId: savedLink.linkId, linkName: savedLink.linkName };
     }
-    async getConfirmedOfferPdfPath(projectId) {
-        const project = await this.assertProjectExists(projectId);
-        if (project.confirmedOfferLinkId == null) {
-            throw new common_1.NotFoundException('No confirmed-offer PDF has been uploaded for this project.');
+    async getConfirmedOfferPdfPath(projectId, venueId) {
+        const pv = await this.assertVenueInProject(projectId, venueId);
+        if (pv.confirmedOfferLinkId == null) {
+            throw new common_1.NotFoundException('No confirmed-offer PDF has been uploaded for this venue.');
         }
         const link = await this.linkRepo.findOne({
-            where: { linkId: project.confirmedOfferLinkId },
+            where: { linkId: pv.confirmedOfferLinkId },
         });
         if (!link) {
             throw new common_1.NotFoundException('The link record for this confirmed-offer PDF was not found.');
@@ -1463,19 +1492,83 @@ let ProjectService = class ProjectService {
         }
         return { filePath, linkName: link.linkName };
     }
-    async removeConfirmedOfferPdf(project) {
-        const linkId = project.confirmedOfferLinkId;
+    async uploadVenueOfferLink(projectId, venueId, file, field, linkType, publicDir) {
+        const pv = await this.assertVenueInProject(projectId, venueId);
+        const publicPath = `/uploads/${publicDir}/${file.filename}`.slice(0, 2048);
+        const link = this.linkRepo.create({
+            linkType,
+            linkUrl: publicPath,
+            linkName: file.originalname,
+            linkPath: publicPath,
+        });
+        const savedLink = await this.linkRepo.save(link);
+        pv[field] = savedLink.linkId;
+        await this.projectVenueRepo.save(pv);
+        return { linkId: savedLink.linkId, linkName: savedLink.linkName };
+    }
+    async getVenueOfferLinkPath(projectId, venueId, field, uploadDir, notFoundMessage) {
+        const pv = await this.assertVenueInProject(projectId, venueId);
+        const linkId = pv[field];
+        if (linkId == null) {
+            throw new common_1.NotFoundException(notFoundMessage);
+        }
+        const link = await this.linkRepo.findOne({ where: { linkId } });
+        if (!link) {
+            throw new common_1.NotFoundException('The link record for this file was not found.');
+        }
+        const fileName = link.linkPath.split('/').pop() ?? '';
+        const filePath = path.resolve(path.join(uploadDir, fileName));
+        if (!filePath.startsWith(path.resolve(uploadDir))) {
+            throw new common_1.BadRequestException('Invalid file path.');
+        }
+        if (!fs.existsSync(filePath)) {
+            throw new common_1.NotFoundException('The file was not found on disk.');
+        }
+        return { filePath, linkName: link.linkName };
+    }
+    async uploadDraftedOfferLink(projectId, venueId, file) {
+        return this.uploadVenueOfferLink(projectId, venueId, file, 'draftedOfferLinkId', 'DraftedOffer', 'drafted-offers');
+    }
+    async getDraftedOfferLinkPath(projectId, venueId) {
+        return this.getVenueOfferLinkPath(projectId, venueId, 'draftedOfferLinkId', offer_link_multer_config_1.DRAFTED_OFFER_UPLOAD_DIR, 'No drafted-offer document has been uploaded for this venue.');
+    }
+    async uploadInConsiderationOfferLink(projectId, venueId, file) {
+        return this.uploadVenueOfferLink(projectId, venueId, file, 'inConsiderationOfferLinkId', 'InConsiderationOffer', 'in-consideration-offers');
+    }
+    async getInConsiderationOfferLinkPath(projectId, venueId) {
+        return this.getVenueOfferLinkPath(projectId, venueId, 'inConsiderationOfferLinkId', offer_link_multer_config_1.IN_CONSIDERATION_OFFER_UPLOAD_DIR, 'No in-consideration-offer document has been uploaded for this venue.');
+    }
+    async removeVenueConfirmedOfferPdf(pv) {
+        const linkId = pv.confirmedOfferLinkId;
         if (linkId == null)
             return;
         const link = await this.linkRepo.findOne({ where: { linkId } });
-        project.confirmedOfferLinkId = null;
-        await this.projectRepo.save(project);
+        pv.confirmedOfferLinkId = null;
+        await this.projectVenueRepo.save(pv);
         if (link) {
             const fileName = link.linkPath.split('/').pop() ?? '';
             if (fileName) {
                 const filePath = path.resolve(path.join(confirmed_offer_multer_config_1.CONFIRMED_OFFER_UPLOAD_DIR, fileName));
                 if (filePath.startsWith(path.resolve(confirmed_offer_multer_config_1.CONFIRMED_OFFER_UPLOAD_DIR)) &&
                     fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+            }
+            await this.linkRepo.remove(link);
+        }
+    }
+    async removeVenueOfferLink(pv, field, uploadDir) {
+        const linkId = pv[field];
+        if (linkId == null)
+            return;
+        const link = await this.linkRepo.findOne({ where: { linkId } });
+        pv[field] = null;
+        await this.projectVenueRepo.save(pv);
+        if (link) {
+            const fileName = link.linkPath.split('/').pop() ?? '';
+            if (fileName) {
+                const filePath = path.resolve(path.join(uploadDir, fileName));
+                if (filePath.startsWith(path.resolve(uploadDir)) && fs.existsSync(filePath)) {
                     fs.unlinkSync(filePath);
                 }
             }
@@ -1494,8 +1587,14 @@ exports.ProjectService = ProjectService = ProjectService_1 = __decorate([
     __param(5, (0, typeorm_1.InjectRepository)(attraction_entity_1.Attraction)),
     __param(6, (0, typeorm_1.InjectRepository)(venue_entity_1.Venue)),
     __param(7, (0, typeorm_1.InjectRepository)(company_entity_1.Company)),
-    __param(8, (0, typeorm_1.InjectRepository)(link_entity_1.Link)),
+    __param(8, (0, typeorm_1.InjectRepository)(contact_entity_1.Contact)),
+    __param(9, (0, typeorm_1.InjectRepository)(contact_assignment_entity_1.ContactAssignment)),
+    __param(10, (0, typeorm_1.InjectRepository)(tour_talent_agent_entity_1.TourTalentAgent)),
+    __param(11, (0, typeorm_1.InjectRepository)(link_entity_1.Link)),
     __metadata("design:paramtypes", [typeorm_2.Repository,
+        typeorm_2.Repository,
+        typeorm_2.Repository,
+        typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,

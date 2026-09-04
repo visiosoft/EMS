@@ -9,6 +9,7 @@ export interface AttractionListRow {
     attractionName: string;
     activeTourCount: number;
     latestTourBannerImageUrl: string | null;
+    latestTourClassName: string | null;
     appCreated: boolean;
 }
 export declare class AttractionService {
@@ -16,7 +17,7 @@ export declare class AttractionService {
     private readonly tourRepo;
     private readonly emsCreated;
     constructor(attractionRepo: Repository<Attraction>, tourRepo: Repository<Tour>, emsCreated: EmsAppCreatedStore);
-    private latestTourBannerUrlsByAttractionIds;
+    private latestTourInfoByAttractionIds;
     private assertUniqueAttractionName;
     private searchTokens;
     private escapeLikePattern;

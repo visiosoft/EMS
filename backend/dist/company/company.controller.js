@@ -277,6 +277,12 @@ let ContactsController = class ContactsController {
     getConnections(id) {
         return this.companyService.getContactConnections(id);
     }
+    async findOne(id) {
+        const row = await this.companyService.findManagedContactById(id);
+        if (!row)
+            throw new common_1.NotFoundException(`Contact ${id} not found`);
+        return row;
+    }
     remove(id) {
         return this.companyService.removeManagedContact(id);
     }
@@ -314,6 +320,13 @@ __decorate([
     __metadata("design:paramtypes", [Number]),
     __metadata("design:returntype", void 0)
 ], ContactsController.prototype, "getConnections", null);
+__decorate([
+    (0, common_1.Get)(':id'),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number]),
+    __metadata("design:returntype", Promise)
+], ContactsController.prototype, "findOne", null);
 __decorate([
     (0, common_1.Delete)(':id'),
     __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),

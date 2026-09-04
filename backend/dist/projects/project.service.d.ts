@@ -7,7 +7,10 @@ import { EngagementProjectVenue } from '../entities/engagement-project-venue.ent
 import { EngagementProjectPerformanceOption } from '../entities/engagement-project-performance-option.entity';
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
+import { Contact } from '../entities/contact.entity';
+import { ContactAssignment } from '../entities/contact-assignment.entity';
 import { Tour } from '../entities/tour.entity';
+import { TourTalentAgent } from '../entities/tour-talent-agent.entity';
 import { Link } from '../entities/link.entity';
 import { Venue } from '../entities/venue.entity';
 import { CreateProjectDto } from './dto/create-project.dto';
@@ -26,6 +29,9 @@ export declare class ProjectService {
     private readonly attractionRepo;
     private readonly venueRepo;
     private readonly companyRepo;
+    private readonly contactRepo;
+    private readonly contactAssignmentRepo;
+    private readonly tourTalentAgentRepo;
     private readonly linkRepo;
     private readonly dataSource;
     private readonly auditContext;
@@ -40,7 +46,7 @@ export declare class ProjectService {
     private companyTypeLinkTableCache;
     private static readonly CREATED_BY_NAME_CACHE_TTL_MS;
     private createdByNameCache;
-    constructor(projectRepo: Repository<EngagementProject>, projectVenueRepo: Repository<EngagementProjectVenue>, optionRepo: Repository<EngagementProjectPerformanceOption>, projectDmaRepo: Repository<EngagementProjectDma>, tourRepo: Repository<Tour>, attractionRepo: Repository<Attraction>, venueRepo: Repository<Venue>, companyRepo: Repository<Company>, linkRepo: Repository<Link>, dataSource: DataSource, auditContext: AuditRequestContext, adminUsersService: AdminUsersService, emsCreated: EmsAppCreatedStore);
+    constructor(projectRepo: Repository<EngagementProject>, projectVenueRepo: Repository<EngagementProjectVenue>, optionRepo: Repository<EngagementProjectPerformanceOption>, projectDmaRepo: Repository<EngagementProjectDma>, tourRepo: Repository<Tour>, attractionRepo: Repository<Attraction>, venueRepo: Repository<Venue>, companyRepo: Repository<Company>, contactRepo: Repository<Contact>, contactAssignmentRepo: Repository<ContactAssignment>, tourTalentAgentRepo: Repository<TourTalentAgent>, linkRepo: Repository<Link>, dataSource: DataSource, auditContext: AuditRequestContext, adminUsersService: AdminUsersService, emsCreated: EmsAppCreatedStore);
     private safeDbIdentifier;
     private canQueryCompanyTypeLinkTable;
     private normalizeTime;
@@ -92,6 +98,9 @@ export declare class ProjectService {
     private resolveCreatedByDisplayValuesForRows;
     private resolveProjectCreatedBy;
     private normalizeDmaIds;
+    private normalizeContactIds;
+    private assertTalentAgentContactsBelongToAgency;
+    private syncTourTalentAgents;
     private assertDmasExist;
     private insertProjectDmasInTransaction;
     private assertVenueInProject;
@@ -118,8 +127,6 @@ export declare class ProjectService {
             attractionName: string | null;
             talentAgencyCompanyId: number | null;
             talentAgencyCompanyName: string | null;
-            projectStage: string;
-            offerReviewStatus: string | null;
             createdDate: Date;
             createdBy: string | null;
             name: null;
@@ -162,7 +169,19 @@ export declare class ProjectService {
             venueName: string | null;
             venueDmaId: number | null;
             venueDmaMarketName: string | null;
+            venueCity: string | null;
+            venueStateProvince: string | null;
+            venueSeatingCapacity: number | null;
+            venueEntertainmentComplexNames: string | null;
             venueStatus: string;
+            offerCreationStatus: string;
+            offerReviewStatus: string | null;
+            confirmedOfferLinkId: number | null;
+            confirmedOfferLinkName: string | null;
+            draftedOfferLinkId: number | null;
+            draftedOfferLinkName: string | null;
+            inConsiderationOfferLinkId: number | null;
+            inConsiderationOfferLinkName: string | null;
             configName: null;
             dealType: null;
             guarantee: null;
@@ -183,8 +202,12 @@ export declare class ProjectService {
     addVenue(projectId: number, dto: AddProjectVenueDto): Promise<{
         engagementProjectVenueId: number;
     }>;
-    updateVenue(projectId: number, venueId: number, dto: UpdateProjectVenueDto): Promise<void>;
+    updateVenue(projectId: number, venueId: number, dto: UpdateProjectVenueDto): Promise<{
+        engagementId: number | null;
+        converted: boolean;
+    }>;
     removeVenue(projectId: number, venueId: number): Promise<void>;
+    private syncProjectOfferCreationStatus;
     addPerformanceOption(projectId: number, dto: AddPerformanceOptionDto): Promise<{
         performanceOptionId: number;
     }>;
@@ -192,7 +215,7 @@ export declare class ProjectService {
     removePerformanceOption(projectId: number, optionId: number): Promise<void>;
     private searchTokens;
     private escapeLikePattern;
-    uploadConfirmedOfferPdf(projectId: number, file: {
+    uploadConfirmedOfferPdf(projectId: number, venueId: number, file: {
         originalname: string;
         mimetype: string;
         filename: string;
@@ -202,9 +225,40 @@ export declare class ProjectService {
         linkId: number;
         linkName: string;
     }>;
-    getConfirmedOfferPdfPath(projectId: number): Promise<{
+    getConfirmedOfferPdfPath(projectId: number, venueId: number): Promise<{
         filePath: string;
         linkName: string;
     }>;
-    private removeConfirmedOfferPdf;
+    private uploadVenueOfferLink;
+    private getVenueOfferLinkPath;
+    uploadDraftedOfferLink(projectId: number, venueId: number, file: {
+        originalname: string;
+        mimetype: string;
+        filename: string;
+        path: string;
+        size: number;
+    }): Promise<{
+        linkId: number;
+        linkName: string;
+    }>;
+    getDraftedOfferLinkPath(projectId: number, venueId: number): Promise<{
+        filePath: string;
+        linkName: string;
+    }>;
+    uploadInConsiderationOfferLink(projectId: number, venueId: number, file: {
+        originalname: string;
+        mimetype: string;
+        filename: string;
+        path: string;
+        size: number;
+    }): Promise<{
+        linkId: number;
+        linkName: string;
+    }>;
+    getInConsiderationOfferLinkPath(projectId: number, venueId: number): Promise<{
+        filePath: string;
+        linkName: string;
+    }>;
+    private removeVenueConfirmedOfferPdf;
+    private removeVenueOfferLink;
 }

@@ -89,6 +89,7 @@ class UpdateEngagementFinanceDto {
     subscriptionSalesRevenueTotal;
     seasonTicketSalesByIae;
     seasonTicketFundsTransferred;
+    totalRevenue;
     netBoxOfficeFundsDepositedAccount;
     hstCollectedFromTicketSales;
     hstPaidOnTourPayments;
@@ -137,6 +138,8 @@ class UpdateEngagementFinanceDto {
     finalRoyaltyAmount;
     finalOverageAmount;
     finalBuyoutAmount;
+    finalOtherAmount;
+    finalConcessionsAmount;
     finalDirectCompanyCharges;
     finalReimbursables;
 }
@@ -198,7 +201,7 @@ __decorate([
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
-    (0, class_validator_1.MaxLength)(100),
+    (0, class_validator_1.MaxLength)(150),
     __metadata("design:type", Object)
 ], UpdateEngagementFinanceDto.prototype, "venueDealType", void 0);
 __decorate([
@@ -409,6 +412,12 @@ __decorate([
     (0, class_validator_1.IsNumber)({ maxDecimalPlaces: 2 }),
     __metadata("design:type", Object)
 ], UpdateEngagementFinanceDto.prototype, "seasonTicketFundsTransferred", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Transform)(({ value }) => toOptionalNumber(value)),
+    (0, class_validator_1.IsNumber)({ maxDecimalPlaces: 2 }),
+    __metadata("design:type", Object)
+], UpdateEngagementFinanceDto.prototype, "totalRevenue", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
@@ -699,6 +708,18 @@ __decorate([
     (0, class_validator_1.IsNumber)({ maxDecimalPlaces: 2 }),
     __metadata("design:type", Object)
 ], UpdateEngagementFinanceDto.prototype, "finalBuyoutAmount", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Transform)(({ value }) => toOptionalNumber(value)),
+    (0, class_validator_1.IsNumber)({ maxDecimalPlaces: 2 }),
+    __metadata("design:type", Object)
+], UpdateEngagementFinanceDto.prototype, "finalOtherAmount", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Transform)(({ value }) => toOptionalNumber(value)),
+    (0, class_validator_1.IsNumber)({ maxDecimalPlaces: 2 }),
+    __metadata("design:type", Object)
+], UpdateEngagementFinanceDto.prototype, "finalConcessionsAmount", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_transformer_1.Transform)(({ value }) => toOptionalNumber(value)),

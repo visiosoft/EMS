@@ -54,6 +54,9 @@ const fs = __importStar(require("fs"));
 const path_2 = require("path");
 const upload_path_1 = require("../common/upload-path");
 const internal_access_guard_js_1 = require("../internal-access/internal-access.guard.js");
+const access_level_guard_1 = require("../common/access-level.guard");
+const require_access_level_decorator_1 = require("../common/require-access-level.decorator");
+const access_level_enum_1 = require("../common/access-level.enum");
 const learning_dto_js_1 = require("./dto/learning.dto.js");
 const learning_service_js_1 = require("./learning.service.js");
 const CERTIFICATE_UPLOAD_DIR = (0, path_2.join)((0, upload_path_1.getUploadRoot)(), 'certificates');
@@ -117,6 +120,9 @@ let LearningController = class LearningController {
     reviewSubmission(id, dto) {
         return this.learningService.reviewSubmission(id, dto);
     }
+    deleteSubmission(id) {
+        return this.learningService.deleteSubmission(id);
+    }
     getEmployeeScores(departmentId) {
         return this.learningService.getEmployeeScores(departmentId);
     }
@@ -158,6 +164,8 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], LearningController.prototype, "getCertificationById", null);
 __decorate([
+    (0, common_1.UseGuards)(access_level_guard_1.AccessLevelGuard),
+    (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
     (0, common_1.Post)('certifications'),
     __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
@@ -165,6 +173,8 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], LearningController.prototype, "createCertification", null);
 __decorate([
+    (0, common_1.UseGuards)(access_level_guard_1.AccessLevelGuard),
+    (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
     (0, common_1.Patch)('certifications/:id'),
     __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
     __param(1, (0, common_1.Body)()),
@@ -173,6 +183,8 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], LearningController.prototype, "updateCertification", null);
 __decorate([
+    (0, common_1.UseGuards)(access_level_guard_1.AccessLevelGuard),
+    (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
     (0, common_1.Patch)('certifications/:id/toggle-status'),
     __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
     __metadata("design:type", Function),
@@ -180,6 +192,8 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], LearningController.prototype, "toggleCertificationStatus", null);
 __decorate([
+    (0, common_1.UseGuards)(access_level_guard_1.AccessLevelGuard),
+    (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
     (0, common_1.Delete)('certifications/:id'),
     __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
     __metadata("design:type", Function),
@@ -213,6 +227,8 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], LearningController.prototype, "createSubmission", null);
 __decorate([
+    (0, common_1.UseGuards)(access_level_guard_1.AccessLevelGuard),
+    (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
     (0, common_1.Patch)('submissions/:id/review'),
     __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
     __param(1, (0, common_1.Body)()),
@@ -220,6 +236,15 @@ __decorate([
     __metadata("design:paramtypes", [Number, learning_dto_js_1.ReviewSubmissionDto]),
     __metadata("design:returntype", void 0)
 ], LearningController.prototype, "reviewSubmission", null);
+__decorate([
+    (0, common_1.UseGuards)(access_level_guard_1.AccessLevelGuard),
+    (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
+    (0, common_1.Delete)('submissions/:id'),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number]),
+    __metadata("design:returntype", void 0)
+], LearningController.prototype, "deleteSubmission", null);
 __decorate([
     (0, common_1.Get)('scores'),
     __param(0, (0, common_1.Query)('departmentId', new common_1.DefaultValuePipe(0), common_1.ParseIntPipe)),
@@ -250,6 +275,8 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], LearningController.prototype, "getPointTiers", null);
 __decorate([
+    (0, common_1.UseGuards)(access_level_guard_1.AccessLevelGuard),
+    (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
     (0, common_1.Get)('overview'),
     __param(0, (0, common_1.Query)('departmentId', common_1.ParseIntPipe)),
     __metadata("design:type", Function),

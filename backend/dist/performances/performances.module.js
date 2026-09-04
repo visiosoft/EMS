@@ -13,8 +13,10 @@ const address_entity_1 = require("../entities/address.entity");
 const attraction_entity_1 = require("../entities/attraction.entity");
 const company_entity_1 = require("../entities/company.entity");
 const engagement_entity_1 = require("../entities/engagement.entity");
+const engagement_production_entity_1 = require("../entities/engagement-production.entity");
 const engagement_venue_entity_1 = require("../entities/engagement-venue.entity");
 const performance_entity_1 = require("../entities/performance.entity");
+const performance_ticketing_entity_1 = require("../entities/performance-ticketing.entity");
 const tour_entity_1 = require("../entities/tour.entity");
 const venue_entity_1 = require("../entities/venue.entity");
 const performances_controller_1 = require("./performances.controller");
@@ -34,6 +36,8 @@ exports.PerformancesModule = PerformancesModule = __decorate([
                 venue_entity_1.Venue,
                 company_entity_1.Company,
                 address_entity_1.Address,
+                engagement_production_entity_1.EngagementProduction,
+                performance_ticketing_entity_1.PerformanceTicketing,
             ]),
         ],
         controllers: [performances_controller_1.PerformancesController],

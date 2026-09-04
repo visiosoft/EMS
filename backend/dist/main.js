@@ -35,14 +35,17 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 const common_1 = require("@nestjs/common");
 const core_1 = require("@nestjs/core");
+const swagger_1 = require("@nestjs/swagger");
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const app_module_1 = require("./app.module");
 const all_exceptions_filter_1 = require("./common/filters/all-exceptions.filter");
 const tour_banner_multer_config_1 = require("./attraction-tours/tour-banner-multer.config");
+const tour_profile_file_multer_config_1 = require("./attraction-tours/tour-profile-file-multer.config");
 const seating_chart_multer_config_1 = require("./engagements/seating-chart-multer.config");
 const contract_multer_config_1 = require("./engagements/contract-multer.config");
 const confirmed_offer_multer_config_1 = require("./projects/confirmed-offer-multer.config");
+const offer_link_multer_config_1 = require("./projects/offer-link-multer.config");
 const upload_path_1 = require("./common/upload-path");
 const DEFAULT_PORT = 3001;
 async function bootstrap() {
@@ -51,7 +54,10 @@ async function bootstrap() {
     fs.mkdirSync(seating_chart_multer_config_1.SEATING_CHART_UPLOAD_DIR, { recursive: true });
     fs.mkdirSync(contract_multer_config_1.CONTRACT_UPLOAD_DIR, { recursive: true });
     fs.mkdirSync(confirmed_offer_multer_config_1.CONFIRMED_OFFER_UPLOAD_DIR, { recursive: true });
+    fs.mkdirSync(offer_link_multer_config_1.DRAFTED_OFFER_UPLOAD_DIR, { recursive: true });
+    fs.mkdirSync(offer_link_multer_config_1.IN_CONSIDERATION_OFFER_UPLOAD_DIR, { recursive: true });
     fs.mkdirSync(certificateUploadDir, { recursive: true });
+    fs.mkdirSync(tour_profile_file_multer_config_1.TOUR_PROFILE_FILE_UPLOAD_DIR, { recursive: true });
     const app = await core_1.NestFactory.create(app_module_1.AppModule, {
         rawBody: true,
     });
@@ -68,8 +74,17 @@ async function bootstrap() {
     app.useStaticAssets(confirmed_offer_multer_config_1.CONFIRMED_OFFER_UPLOAD_DIR, {
         prefix: '/uploads/confirmed-offers/',
     });
+    app.useStaticAssets(offer_link_multer_config_1.DRAFTED_OFFER_UPLOAD_DIR, {
+        prefix: '/uploads/drafted-offers/',
+    });
+    app.useStaticAssets(offer_link_multer_config_1.IN_CONSIDERATION_OFFER_UPLOAD_DIR, {
+        prefix: '/uploads/in-consideration-offers/',
+    });
     app.useStaticAssets(certificateUploadDir, {
         prefix: '/uploads/certificates/',
+    });
+    app.useStaticAssets(tour_profile_file_multer_config_1.TOUR_PROFILE_FILE_UPLOAD_DIR, {
+        prefix: '/uploads/tour-profile-files/',
     });
     app.enableCors();
     app.setGlobalPrefix('api');
@@ -79,6 +94,16 @@ async function bootstrap() {
         whitelist: true,
         forbidNonWhitelisted: false,
     }));
+    const swaggerConfig = new swagger_1.DocumentBuilder()
+        .setTitle('NKU Event Management System API')
+        .setDescription('EMS Core REST API Surface, OpenAPI definitions, and AI Tools Catalog')
+        .setVersion('1.0')
+        .addTag('EMS')
+        .build();
+    const swaggerDocument = swagger_1.SwaggerModule.createDocument(app, swaggerConfig);
+    swagger_1.SwaggerModule.setup('api/docs', app, swaggerDocument, {
+        jsonDocumentUrl: 'api/docs-json',
+    });
     const repoRoot = path.resolve(__dirname, '..', '..');
     const frontendDistDir = path.join(repoRoot, 'dist');
     const frontendIndexPath = path.join(frontendDistDir, 'index.html');

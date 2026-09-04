@@ -662,6 +662,7 @@ let DailySalesService = DailySalesService_1 = class DailySalesService {
                 'v.venueName                                            AS venueName',
                 'addr.city                                              AS city',
                 'addr.stateProvince                                   AS stateProvince',
+                'dma.marketName                                        AS dmaMarketName',
                 `(
           SELECT STRING_AGG(LTRIM(RTRIM(ccx.CompanyName)), N', ') WITHIN GROUP (ORDER BY LTRIM(RTRIM(ccx.CompanyName)))
           FROM dbo.VenueComplexMember vcmx
@@ -745,6 +746,7 @@ let DailySalesService = DailySalesService_1 = class DailySalesService {
                 venueName: r['venueName'] != null ? String(r['venueName']) : null,
                 city: r['city'] != null ? String(r['city']) : null,
                 stateProvince: r['stateProvince'] != null ? String(r['stateProvince']) : null,
+                dmaMarketName: r['dmaMarketName'] != null ? String(r['dmaMarketName']) : null,
                 entertainmentComplexNames: r['entertainmentComplexNames'] != null
                     ? String(r['entertainmentComplexNames'])
                     : null,
@@ -835,6 +837,7 @@ let DailySalesService = DailySalesService_1 = class DailySalesService {
             .leftJoin(venue_entity_1.Venue, 'v', 'v.companyId = ev.venueCompanyId')
             .leftJoin(company_entity_1.Company, 'vc', 'vc.companyId = ev.venueCompanyId')
             .leftJoin(address_entity_1.Address, 'addr', 'addr.addressId = vc.physicalAddressId')
+            .leftJoin('vc.dma', 'dma')
             .leftJoin(ticketing_sales_entity_1.TicketingSales, 'ts_today', 'ts_today.performanceId = p.performanceId AND ' +
             'CONVERT(date, ts_today.salesDate) = CAST(:asOf AS date)')
             .leftJoin(ticketing_sales_entity_1.TicketingSales, 'ts_yesterday', 'ts_yesterday.performanceId = p.performanceId AND ' +
@@ -1102,6 +1105,41 @@ let DailySalesService = DailySalesService_1 = class DailySalesService {
             x.attractionId > 0 &&
             x.attractionName.length > 0);
     }
+    async getPercentageSoldForPerformances(asOfDateParam, performanceIds) {
+        const ids = [...new Set(performanceIds)].filter((id) => Number.isInteger(id) && id > 0);
+        if (ids.length === 0)
+            return [];
+        const asOf = await this.resolveAsOfDateString(asOfDateParam);
+        const rows = await this.performanceRepo
+            .createQueryBuilder('p')
+            .innerJoin(engagement_entity_1.Engagement, 'e', 'e.engagementId = p.engagementId')
+            .where('p.performanceId IN (:...ids)', { ids })
+            .select('p.performanceId', 'performanceId')
+            .addSelect('e.sellableCapacity', 'engagementSellableCapacity')
+            .addSelect(`(
+          SELECT TOP 1 CAST(ts.performanceSalesQuantity AS BIGINT)
+          FROM dbo.TicketingSales ts
+          WHERE ts.performanceId = p.performanceId
+            AND CONVERT(date, ts.salesDate) <= CAST(:asOf AS date)
+          ORDER BY ts.salesDate DESC
+        )`, 'totalSold')
+            .setParameter('asOf', asOf)
+            .getRawMany();
+        return rows.map((r) => {
+            const totalSold = numOrZero(r['totalSold']);
+            const capRaw = r['engagementSellableCapacity'];
+            const capacity = capRaw != null && Number.isFinite(Number(capRaw))
+                ? Number(capRaw)
+                : null;
+            const percentSold = capacity != null && capacity > 0 ? (totalSold / capacity) * 100 : null;
+            return {
+                performanceId: Number(r['performanceId']),
+                totalSold,
+                engagementSellableCapacity: capacity,
+                percentSold,
+            };
+        });
+    }
     async getByPerformanceSuggestions(asOfDateParam, query, performanceDateRaw, startDateRaw, endDateRaw) {
         const q = (query ?? '').trim().toLowerCase();
         if (!q)
@@ -1249,7 +1287,6 @@ let DailySalesService = DailySalesService_1 = class DailySalesService {
             perfs = [match];
         }
         const perfIds = perfs.map((p) => p.performanceId);
-        const performanceCount = perfs.length;
         const marketingWindow = await this.getMarketingWindowForPerformances(perfIds);
         const byPerf = new Map();
         for (const id of perfIds)
@@ -1298,22 +1335,17 @@ let DailySalesService = DailySalesService_1 = class DailySalesService {
         const baselineTotals = totalsForReportingDay(perfIds, byPerf, baselineDay);
         const ticketsLast7Days = Math.max(0, endTotals.tickets - baselineTotals.tickets);
         const revenueLast7Days = Math.max(0, endTotals.revenue - baselineTotals.revenue);
-        const perShowCapRaw = engagement.sellableCapacity;
-        const perShowGrossRaw = (() => {
+        const cap = engagement.sellableCapacity != null &&
+            Number.isFinite(Number(engagement.sellableCapacity))
+            ? Math.trunc(Number(engagement.sellableCapacity))
+            : null;
+        const grossPotentialNum = (() => {
             const v = engagement.grossPotential;
-            if (v == null)
-                return null;
-            if (typeof v === 'string' && v.trim() === '')
+            if (v == null || (typeof v === 'string' && v.trim() === ''))
                 return null;
             const n = Number(v);
             return Number.isFinite(n) ? n : null;
         })();
-        const cap = perShowCapRaw != null && performanceCount > 0
-            ? perShowCapRaw * performanceCount
-            : perShowCapRaw;
-        const grossPotentialNum = perShowGrossRaw != null && performanceCount > 0
-            ? perShowGrossRaw * performanceCount
-            : perShowGrossRaw;
         const pctSold = cap != null && cap > 0 ? pctVsCap(endTotals.tickets, cap) : null;
         const pctRevenueVsPotential = grossPotentialNum != null && grossPotentialNum > 0
             ? pctVsCap(endTotals.revenue, grossPotentialNum)

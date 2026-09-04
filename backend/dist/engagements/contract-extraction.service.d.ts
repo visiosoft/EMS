@@ -1,4 +1,9 @@
 import { ContractLlmClient } from './contract-llm.client';
+export interface PerformanceItem {
+    date: string | null;
+    time: string | null;
+    formatted: string;
+}
 export interface ExtractedContractData {
     agency: string | null;
     agent: string | null;
@@ -11,6 +16,7 @@ export interface ExtractedContractData {
     producer: string | null;
     producerAddress: string | null;
     producerFedId: string | null;
+    presenter: string | null;
     guaranteeAmount: number | null;
     guaranteeCurrency: string | null;
     depositAmount: number | null;
@@ -23,8 +29,8 @@ export interface ExtractedContractData {
     paymentMethodType: string | null;
     paymentPayableTo: string | null;
     paymentBankName: string | null;
-    performances: string | null;
-    additionallyInsured: string | null;
+    performances: PerformanceItem[] | null;
+    additionallyInsured: string[] | null;
     oneDrivePdfUrl: string | null;
 }
 export interface ContractFieldMeta {
@@ -48,7 +54,12 @@ export declare class ContractExtractionService {
     private extractFromDocx;
     private extractFromText;
     private buildResultFromRaw;
+    private computeFieldStatus;
+    private assignPerformanceList;
+    private assignInsuredList;
     private applyDerivations;
+    private deriveAdditionallyInsured;
+    private ensureAgencyFirstInsured;
     private normalizeFieldValue;
     private normalizeForMatch;
     private clamp01;
@@ -70,6 +81,7 @@ export declare class ContractExtractionService {
     private findCurrency;
     private findDate;
     private parseDate;
+    private parseTime;
     private monthToNum;
     private emptyResult;
 }

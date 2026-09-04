@@ -51,9 +51,22 @@ export declare class RampController {
         };
         matchedFields: import("./ramp.service").RampAccountingField[];
         matchedOptions: import("./ramp.service").RampAccountingFieldOption[];
-        glAccounts: import("./ramp.service").RampGlAccount[];
-        accountingVendors: import("./ramp.service").RampAccountingVendor[];
         allFields: import("./ramp.service").RampAccountingField[];
-        customerJobOptions: import("./ramp.service").RampAccountingFieldOption[];
+        customerJobOptionsCount: number;
     }>;
+    getEngagementGlAccounts(engagementId: number): Promise<{
+        glAccounts: import("./ramp.service").RampGlAccount[];
+        glAccountAmounts: Record<string, number>;
+    }>;
+    getEngagementCustomerJobOptions(engagementId: number): Promise<{
+        fieldName: string | null;
+        options: import("./ramp.service").RampAccountingFieldOption[];
+    }>;
+    getEngagementAccountingVendors(engagementId: number): Promise<{
+        accountingVendors: import("./ramp.service").RampAccountingVendor[];
+    }>;
+    getEngagementMemos(engagementId: number, pageSize?: string, start?: string): Promise<import("./ramp.service").RampPagedResponse<import("./ramp.service").RampMemo & {
+        transaction_amount: number | null;
+        merchant_name: string | null;
+    }>>;
 }

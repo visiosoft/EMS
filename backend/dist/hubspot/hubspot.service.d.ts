@@ -66,6 +66,8 @@ export declare class HubSpotService {
     private createPropertyIfMissing;
     private syncContacts;
     private findExistingContactIdsByEmail;
+    private findExistingContactIdsBySyncKey;
+    private findExistingContactIdsByEmsIds;
     private updateContactsByHubSpotId;
     private upsertContactsWithInvalidEmailRetry;
     private upsertObjects;
@@ -87,4 +89,17 @@ export declare class HubSpotService {
     private toNullableNumber;
     private mergeHubSpotIds;
     handleWebhookEvents(events: HubSpotWebhookEventDto[]): Promise<void>;
+    private fetchHubSpotContact;
+    private readonly webhookPropertyMap;
+    private handleContactPropertyChanges;
+    private handleContactCreation;
+    private updateHubSpotContactIds;
+    private readonly hubSpotAddressColumnMap;
+    private fetchHubSpotCompany;
+    private handleCompanyPropertyChanges;
+    private upsertCompanyAddress;
+    private handleCompanyCreation;
+    private createCompanyFromHubSpot;
+    private resolveOrCreateCompanyTypeId;
+    private updateHubSpotCompanyId;
 }

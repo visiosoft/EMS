@@ -21,6 +21,7 @@ let Engagement = class Engagement extends audit_columns_1.AuditColumns {
     sellableCapacity;
     grossPotential;
     tourManagerContactId;
+    vipPdfLinkId;
     tour;
 };
 exports.Engagement = Engagement;
@@ -63,6 +64,10 @@ __decorate([
     (0, typeorm_1.Column)({ name: 'TourManagerContactID', type: 'int', nullable: true }),
     __metadata("design:type", Object)
 ], Engagement.prototype, "tourManagerContactId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'VipPdfLinkID', type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], Engagement.prototype, "vipPdfLinkId", void 0);
 __decorate([
     (0, typeorm_1.ManyToOne)(() => tour_entity_1.Tour),
     (0, typeorm_1.JoinColumn)({ name: 'TourID' }),

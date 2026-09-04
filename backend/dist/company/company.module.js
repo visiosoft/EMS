@@ -19,6 +19,7 @@ const contact_info_entity_1 = require("../entities/contact-info.entity");
 const contact_entity_1 = require("../entities/contact.entity");
 const department_entity_1 = require("../entities/department.entity");
 const dma_entity_1 = require("../entities/dma.entity");
+const dma_population_entity_1 = require("../entities/dma-population.entity");
 const engagement_project_venue_entity_1 = require("../entities/engagement-project-venue.entity");
 const engagement_venue_entity_1 = require("../entities/engagement-venue.entity");
 const engagement_entity_1 = require("../entities/engagement.entity");
@@ -39,6 +40,7 @@ const service_provided_entity_1 = require("../entities/service-provided.entity")
 const company_service_entity_1 = require("../entities/company-service.entity");
 const company_service_area_entity_1 = require("../entities/company-service-area.entity");
 const company_type_service_entity_1 = require("../entities/company-type-service.entity");
+const department_role_entity_1 = require("../entities/department-role.entity");
 const venue_service_provider_entity_1 = require("../entities/venue-service-provider.entity");
 const link_entity_1 = require("../entities/link.entity");
 const lookups_controller_1 = require("../lookups/lookups.controller");
@@ -54,6 +56,7 @@ const entities = [
     company_type_entity_1.CompanyType,
     company_entity_1.Company,
     dma_entity_1.Dma,
+    dma_population_entity_1.DmaPopulation,
     link_entity_1.Link,
     contact_info_entity_1.ContactInfo,
     contact_entity_1.Contact,
@@ -70,6 +73,7 @@ const entities = [
     service_provided_entity_1.ServiceProvided,
     company_service_entity_1.CompanyService,
     company_type_service_entity_1.CompanyTypeService,
+    department_role_entity_1.DepartmentRole,
     company_service_area_entity_1.CompanyServiceArea,
     venue_service_provider_entity_1.VenueServiceProvider,
     engagement_venue_entity_1.EngagementVenue,

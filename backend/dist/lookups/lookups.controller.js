@@ -58,6 +58,15 @@ let LookupsController = class LookupsController {
     stagehandProviders() {
         return this.lookupsService.findStagehandProviders();
     }
+    departmentRoles() {
+        return this.lookupsService.findDepartmentRoles();
+    }
+    departmentRoleContactUsage(departmentId) {
+        return this.lookupsService.getContactsUsingDepartmentRoles(departmentId);
+    }
+    companyTypeServiceUsage(companyTypeId) {
+        return this.lookupsService.getCompaniesUsingCompanyTypeServices(companyTypeId);
+    }
     nonResidentWithholdings() {
         return this.lookupsService.findNonResidentWithholdings();
     }
@@ -76,11 +85,22 @@ let LookupsController = class LookupsController {
             : 50;
         return this.lookupsService.searchDmaMarkets(query?.trim() ?? '', safeLimit);
     }
-    dmaMarkets(offset, limit, query) {
+    async dmaMarketsByCity(query, limit) {
+        const raw = limit ? Number(limit) : 50;
+        const safeLimit = Number.isFinite(raw)
+            ? Math.min(200, Math.max(1, Math.floor(raw)))
+            : 50;
+        return this.lookupsService.findDmaMarketsByCity(query?.trim() ?? '', safeLimit);
+    }
+    dmaMarkets(offset, limit, query, enriched) {
         const safeLimit = Number.isFinite(limit)
             ? Math.min(500, Math.max(1, Math.floor(limit)))
             : 25;
         const safeOffset = Math.max(0, offset);
+        const wantEnriched = String(enriched ?? '').toLowerCase() === 'true';
+        if (wantEnriched) {
+            return this.lookupsService.findDmaMarketsPaginatedEnriched(safeOffset, safeLimit, query?.trim() ?? '');
+        }
         return this.lookupsService.findDmaMarketsPaginated(safeOffset, safeLimit, query?.trim() ?? '');
     }
     listManagedLookupRows(table, offset, limit, q, sortBy, sortDir) {
@@ -175,6 +195,26 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], LookupsController.prototype, "stagehandProviders", null);
 __decorate([
+    (0, common_1.Get)('department-roles'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], LookupsController.prototype, "departmentRoles", null);
+__decorate([
+    (0, common_1.Get)('department-roles/:departmentId/contact-usage'),
+    __param(0, (0, common_1.Param)('departmentId', common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number]),
+    __metadata("design:returntype", void 0)
+], LookupsController.prototype, "departmentRoleContactUsage", null);
+__decorate([
+    (0, common_1.Get)('company-type-services/:companyTypeId/company-usage'),
+    __param(0, (0, common_1.Param)('companyTypeId', common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number]),
+    __metadata("design:returntype", void 0)
+], LookupsController.prototype, "companyTypeServiceUsage", null);
+__decorate([
     (0, common_1.Get)('non-resident-withholdings'),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
@@ -203,12 +243,21 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], LookupsController.prototype, "searchDmaMarkets", null);
 __decorate([
+    (0, common_1.Get)('dma-markets/by-city'),
+    __param(0, (0, common_1.Query)('q')),
+    __param(1, (0, common_1.Query)('limit')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", Promise)
+], LookupsController.prototype, "dmaMarketsByCity", null);
+__decorate([
     (0, common_1.Get)('dma-markets'),
     __param(0, (0, common_1.Query)('offset', new common_1.DefaultValuePipe(0), common_1.ParseIntPipe)),
     __param(1, (0, common_1.Query)('limit', new common_1.DefaultValuePipe(25), common_1.ParseIntPipe)),
     __param(2, (0, common_1.Query)('q')),
+    __param(3, (0, common_1.Query)('enriched')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Number, Number, String]),
+    __metadata("design:paramtypes", [Number, Number, String, String]),
     __metadata("design:returntype", void 0)
 ], LookupsController.prototype, "dmaMarkets", null);
 __decorate([

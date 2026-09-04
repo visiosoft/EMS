@@ -17,6 +17,12 @@ let EngagementProduction = class EngagementProduction {
     rehearsalDate;
     loadInDate;
     announcementDate;
+    runnerRequired;
+    cateringRequired;
+    cateringBudgetLineItem;
+    productionBuyoutRequired;
+    productionBuyoutDescription;
+    productionBuyoutBudgetAmount;
 };
 exports.EngagementProduction = EngagementProduction;
 __decorate([
@@ -39,6 +45,30 @@ __decorate([
     (0, typeorm_1.Column)({ name: 'AnnouncementDate', type: 'date', nullable: true }),
     __metadata("design:type", Object)
 ], EngagementProduction.prototype, "announcementDate", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'RunnerRequired', type: 'bit', nullable: true }),
+    __metadata("design:type", Object)
+], EngagementProduction.prototype, "runnerRequired", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'CateringRequired', type: 'bit', nullable: true }),
+    __metadata("design:type", Object)
+], EngagementProduction.prototype, "cateringRequired", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'CateringBudgetLineItem', type: 'nvarchar', length: 500, nullable: true }),
+    __metadata("design:type", Object)
+], EngagementProduction.prototype, "cateringBudgetLineItem", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'ProductionBuyoutRequired', type: 'bit', nullable: true }),
+    __metadata("design:type", Object)
+], EngagementProduction.prototype, "productionBuyoutRequired", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'ProductionBuyoutDescription', type: 'nvarchar', length: 500, nullable: true }),
+    __metadata("design:type", Object)
+], EngagementProduction.prototype, "productionBuyoutDescription", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'ProductionBuyoutBudgetAmount', type: 'decimal', precision: 18, scale: 2, nullable: true }),
+    __metadata("design:type", Object)
+], EngagementProduction.prototype, "productionBuyoutBudgetAmount", void 0);
 exports.EngagementProduction = EngagementProduction = __decorate([
     (0, typeorm_1.Entity)({ name: 'EngagementProduction', schema: 'dbo' })
 ], EngagementProduction);

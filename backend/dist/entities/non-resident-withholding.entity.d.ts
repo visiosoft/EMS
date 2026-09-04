@@ -7,6 +7,7 @@ export declare class NonResidentWithholding {
     artistWaiverInstructionsId: number | null;
     iaeWaiverInstructionsId: number | null;
     withholdingArea: string | null;
+    areaCategory: string | null;
     withholdingAgencyName: string | null;
     withholdingPayee: string | null;
     paymentMethod: string | null;

@@ -1,3 +1,8 @@
+export declare class PerformanceItemDto {
+    date?: string | null;
+    time?: string | null;
+    formatted?: string | null;
+}
 export declare class SavePerformanceContractDto {
     agency?: string | null;
     agent?: string | null;
@@ -22,8 +27,8 @@ export declare class SavePerformanceContractDto {
     paymentMethodType?: string | null;
     paymentPayableTo?: string | null;
     paymentBankName?: string | null;
-    performances?: string | null;
-    additionallyInsured?: string | null;
+    performances?: PerformanceItemDto[] | null;
+    additionallyInsured?: string[] | null;
     oneDrivePdfUrl?: string | null;
     originalFilename?: string | null;
     annotatedPdfBlobName?: string | null;

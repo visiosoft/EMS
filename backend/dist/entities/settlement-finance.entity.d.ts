@@ -5,6 +5,7 @@ export declare class SettlementFinance {
     subscriptionSalesRevenueTotal: string | number | null;
     seasonTicketSalesByIae: string | number | null;
     seasonTicketFundsTransferred: string | number | null;
+    totalRevenue: string | number | null;
     netBoxOfficeFundsDepositedAccount: string | null;
     hstCollectedFromTicketSales: string | number | null;
     hstPaidOnTourPayments: string | number | null;
@@ -17,6 +18,8 @@ export declare class SettlementFinance {
     finalRoyaltyAmount: string | number | null;
     finalOverageAmount: string | number | null;
     finalBuyoutAmount: string | number | null;
+    finalOtherAmount: string | number | null;
+    finalConcessionsAmount: string | number | null;
     directCompanyCharges: string | number | null;
     reimbursables: string | number | null;
 }

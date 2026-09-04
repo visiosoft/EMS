@@ -11,8 +11,11 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.UpdateProjectVenueDto = void 0;
 const class_validator_1 = require("class-validator");
+const project_stage_constants_1 = require("../project-stage.constants");
 class UpdateProjectVenueDto {
     venueStatus;
+    offerCreationStatus;
+    offerReviewStatus;
     configName;
     dealType;
     guarantee;
@@ -28,6 +31,18 @@ __decorate([
     (0, class_validator_1.MaxLength)(50),
     __metadata("design:type", String)
 ], UpdateProjectVenueDto.prototype, "venueStatus", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsIn)([...project_stage_constants_1.PROJECT_STAGE_VALUES]),
+    __metadata("design:type", String)
+], UpdateProjectVenueDto.prototype, "offerCreationStatus", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsIn)([...project_stage_constants_1.OFFER_REVIEW_STATUS_VALUES]),
+    __metadata("design:type", Object)
+], UpdateProjectVenueDto.prototype, "offerReviewStatus", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     __metadata("design:type", Object)

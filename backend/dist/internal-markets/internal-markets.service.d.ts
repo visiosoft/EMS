@@ -8,16 +8,20 @@ export declare class InternalMarketsService {
         data: {
             dmaid: number;
             marketName: string;
-            samplePostalCode: string;
-            postalCount: number;
+            nielsenMarketName: string | null;
+            nielsenCode: number | null;
+            nielsenRank: number | null;
+            population: number | null;
         }[];
         total: number;
     }>;
     suggestMarkets(query: string, limit: number): Promise<{
         dmaid: number;
         marketName: string;
-        samplePostalCode: string;
-        postalCount: number;
+        nielsenMarketName: string | null;
+        nielsenCode: number | null;
+        nielsenRank: number | null;
+        population: number | null;
     }[]>;
     listVenuesForMarket(dmaid: number, offset: number, limit: number): Promise<{
         data: import("../venue-directory/venue-directory.service").AllVenueDirectoryRow[];

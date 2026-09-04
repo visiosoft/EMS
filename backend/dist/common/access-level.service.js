@@ -41,7 +41,7 @@ let AccessLevelService = AccessLevelService_1 = class AccessLevelService {
                 const lower = raw.toLowerCase();
                 if (lower === 'super admin')
                     return access_level_enum_1.AccessLevel.SuperAdmin;
-                if (lower === 'administrator')
+                if (lower === 'administrator' || lower === 'admin')
                     return access_level_enum_1.AccessLevel.Administrator;
                 if (lower === 'employee')
                     return access_level_enum_1.AccessLevel.Employee;

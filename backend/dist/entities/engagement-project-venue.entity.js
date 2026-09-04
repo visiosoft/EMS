@@ -16,6 +16,11 @@ let EngagementProjectVenue = class EngagementProjectVenue {
     engagementProjectId;
     venueCompanyId;
     venueStatus;
+    offerCreationStatus;
+    offerReviewStatus;
+    confirmedOfferLinkId;
+    draftedOfferLinkId;
+    inConsiderationOfferLinkId;
 };
 exports.EngagementProjectVenue = EngagementProjectVenue;
 __decorate([
@@ -34,6 +39,26 @@ __decorate([
     (0, typeorm_1.Column)({ name: 'VenueStatus', type: 'nvarchar', length: 50 }),
     __metadata("design:type", String)
 ], EngagementProjectVenue.prototype, "venueStatus", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'OfferCreationStatus', type: 'nvarchar', length: 50, nullable: true }),
+    __metadata("design:type", Object)
+], EngagementProjectVenue.prototype, "offerCreationStatus", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'OfferReviewStatus', type: 'nvarchar', length: 50, nullable: true }),
+    __metadata("design:type", Object)
+], EngagementProjectVenue.prototype, "offerReviewStatus", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'ConfirmedOfferLinkID', type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], EngagementProjectVenue.prototype, "confirmedOfferLinkId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'DraftedOfferLinkID', type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], EngagementProjectVenue.prototype, "draftedOfferLinkId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'InConsiderationOfferLinkID', type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], EngagementProjectVenue.prototype, "inConsiderationOfferLinkId", void 0);
 exports.EngagementProjectVenue = EngagementProjectVenue = __decorate([
     (0, typeorm_1.Entity)({ name: 'EngagementProjectVenue', schema: 'dbo' })
 ], EngagementProjectVenue);

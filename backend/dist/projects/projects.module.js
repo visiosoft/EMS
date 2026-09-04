@@ -13,6 +13,8 @@ const admin_users_module_1 = require("../admin-users/admin-users.module");
 const attraction_tours_module_1 = require("../attraction-tours/attraction-tours.module");
 const attraction_entity_1 = require("../entities/attraction.entity");
 const company_entity_1 = require("../entities/company.entity");
+const contact_entity_1 = require("../entities/contact.entity");
+const contact_assignment_entity_1 = require("../entities/contact-assignment.entity");
 const engagement_entity_1 = require("../entities/engagement.entity");
 const engagement_project_entity_1 = require("../entities/engagement-project.entity");
 const engagement_project_dma_entity_1 = require("../entities/engagement-project-dma.entity");
@@ -23,6 +25,7 @@ const engagement_xref_entity_1 = require("../entities/engagement-xref.entity");
 const link_entity_1 = require("../entities/link.entity");
 const performance_entity_1 = require("../entities/performance.entity");
 const tour_entity_1 = require("../entities/tour.entity");
+const tour_talent_agent_entity_1 = require("../entities/tour-talent-agent.entity");
 const venue_entity_1 = require("../entities/venue.entity");
 const project_controller_1 = require("./project.controller");
 const project_service_1 = require("./project.service");
@@ -44,9 +47,12 @@ exports.ProjectsModule = ProjectsModule = __decorate([
                 engagement_xref_entity_1.EngagementXref,
                 performance_entity_1.Performance,
                 tour_entity_1.Tour,
+                tour_talent_agent_entity_1.TourTalentAgent,
                 attraction_entity_1.Attraction,
                 venue_entity_1.Venue,
                 company_entity_1.Company,
+                contact_entity_1.Contact,
+                contact_assignment_entity_1.ContactAssignment,
                 link_entity_1.Link,
             ]),
         ],

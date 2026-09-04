@@ -26,6 +26,7 @@ const update_engagement_venue_tab_dto_1 = require("./dto/update-engagement-venue
 const create_engagement_dto_1 = require("./dto/create-engagement.dto");
 const create_engagement_iae_contact_dto_1 = require("./dto/create-engagement-iae-contact.dto");
 const create_performance_dto_1 = require("./dto/create-performance.dto");
+const engagement_rehearsal_dto_1 = require("./dto/engagement-rehearsal.dto");
 const update_engagement_dto_1 = require("./dto/update-engagement.dto");
 const update_engagement_finance_dto_1 = require("./dto/update-engagement-finance.dto");
 const update_engagement_iae_contact_dto_1 = require("./dto/update-engagement-iae-contact.dto");
@@ -60,6 +61,9 @@ let EngagementController = EngagementController_1 = class EngagementController {
     iaeContactLookups() {
         return this.engagementService.getEngagementIaeContactLookups();
     }
+    listEquipmentRentalTypes() {
+        return this.engagementService.listEquipmentRentalTypes();
+    }
     listHubSchedule(startDate, endDate) {
         return this.engagementService.listHubSchedule(startDate, endDate);
     }
@@ -87,7 +91,7 @@ let EngagementController = EngagementController_1 = class EngagementController {
     updateNonResidentWithholding(nrwId, dto) {
         return this.engagementService.updateNonResidentWithholding(nrwId, dto);
     }
-    listPaged(offset, limit, q, engagementId, status, attraction, dma, venue, timing, mine, sortBy, sortDir, dateFrom, dateTo) {
+    listPaged(offset, limit, q, engagementId, status, attraction, dma, city, venue, timing, mine, sortBy, sortDir, dateFrom, dateTo) {
         const t = timing === 'upcoming' || timing === 'past' ? timing : 'all';
         return this.engagementService.listPaginated(offset, limit, {
             q,
@@ -95,6 +99,7 @@ let EngagementController = EngagementController_1 = class EngagementController {
             status,
             attractionName: attraction,
             dmaMarketName: dma,
+            city,
             venueLabel: venue,
             timing: t,
             mine: mine === '1' || mine === 'true',
@@ -167,6 +172,18 @@ let EngagementController = EngagementController_1 = class EngagementController {
     removeServiceProvider(id, providerCompanyId) {
         return this.engagementService.removeServiceProvider(id, providerCompanyId);
     }
+    listRehearsals(id) {
+        return this.engagementService.listRehearsals(id);
+    }
+    createRehearsal(id, dto) {
+        return this.engagementService.createRehearsal(id, dto);
+    }
+    updateRehearsal(id, rehearsalId, dto) {
+        return this.engagementService.updateRehearsal(id, rehearsalId, dto);
+    }
+    deleteRehearsal(id, rehearsalId) {
+        return this.engagementService.deleteRehearsal(id, rehearsalId);
+    }
     listPerformances(id) {
         return this.engagementService.listPerformances(id);
     }
@@ -235,6 +252,27 @@ let EngagementController = EngagementController_1 = class EngagementController {
     }
     deleteTravel(id, travelId) {
         return this.engagementService.deleteEngagementTravel(id, travelId);
+    }
+    upsertTravelDrillBits(id, body) {
+        return this.engagementService.upsertTravelDrillBits(id, body.travelTypes);
+    }
+    getEngagementBuyouts(id) {
+        return this.engagementService.getEngagementBuyouts(id);
+    }
+    upsertEngagementBuyouts(id, body) {
+        return this.engagementService.upsertEngagementBuyouts(id, body.items);
+    }
+    getEquipmentRentals(id) {
+        return this.engagementService.getEquipmentRentals(id);
+    }
+    upsertEquipmentRentals(id, body) {
+        return this.engagementService.upsertEquipmentRentals(id, body.items);
+    }
+    getProductionMisc(id) {
+        return this.engagementService.getProductionMisc(id);
+    }
+    updateProductionMisc(id, body) {
+        return this.engagementService.updateProductionMisc(id, body);
     }
     getContracts(id) {
         return this.engagementService.getPerformanceContracts(id);
@@ -306,6 +344,12 @@ __decorate([
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", void 0)
 ], EngagementController.prototype, "iaeContactLookups", null);
+__decorate([
+    (0, common_1.Get)('equipment-rental-types'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], EngagementController.prototype, "listEquipmentRentalTypes", null);
 __decorate([
     (0, common_1.Get)('hub-schedule'),
     __param(0, (0, common_1.Query)('startDate')),
@@ -387,15 +431,16 @@ __decorate([
     __param(4, (0, common_1.Query)('status')),
     __param(5, (0, common_1.Query)('attraction')),
     __param(6, (0, common_1.Query)('dma')),
-    __param(7, (0, common_1.Query)('venue')),
-    __param(8, (0, common_1.Query)('timing')),
-    __param(9, (0, common_1.Query)('mine')),
-    __param(10, (0, common_1.Query)('sortBy')),
-    __param(11, (0, common_1.Query)('sortDir')),
-    __param(12, (0, common_1.Query)('dateFrom')),
-    __param(13, (0, common_1.Query)('dateTo')),
+    __param(7, (0, common_1.Query)('city')),
+    __param(8, (0, common_1.Query)('venue')),
+    __param(9, (0, common_1.Query)('timing')),
+    __param(10, (0, common_1.Query)('mine')),
+    __param(11, (0, common_1.Query)('sortBy')),
+    __param(12, (0, common_1.Query)('sortDir')),
+    __param(13, (0, common_1.Query)('dateFrom')),
+    __param(14, (0, common_1.Query)('dateTo')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Number, Number, String, String, String, String, String, String, String, String, String, String, String, String]),
+    __metadata("design:paramtypes", [Number, Number, String, String, String, String, String, String, String, String, String, String, String, String, String]),
     __metadata("design:returntype", void 0)
 ], EngagementController.prototype, "listPaged", null);
 __decorate([
@@ -577,6 +622,41 @@ __decorate([
     __metadata("design:paramtypes", [Number, Number]),
     __metadata("design:returntype", void 0)
 ], EngagementController.prototype, "removeServiceProvider", null);
+__decorate([
+    (0, common_1.Get)(':id/rehearsals'),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number]),
+    __metadata("design:returntype", void 0)
+], EngagementController.prototype, "listRehearsals", null);
+__decorate([
+    (0, common_1.Post)(':id/rehearsals'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.CREATED),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, engagement_rehearsal_dto_1.CreateEngagementRehearsalDto]),
+    __metadata("design:returntype", void 0)
+], EngagementController.prototype, "createRehearsal", null);
+__decorate([
+    (0, common_1.Patch)(':id/rehearsals/:rehearsalId'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.NO_CONTENT),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __param(1, (0, common_1.Param)('rehearsalId', common_1.ParseIntPipe)),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, Number, engagement_rehearsal_dto_1.UpdateEngagementRehearsalDto]),
+    __metadata("design:returntype", void 0)
+], EngagementController.prototype, "updateRehearsal", null);
+__decorate([
+    (0, common_1.Delete)(':id/rehearsals/:rehearsalId'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.NO_CONTENT),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __param(1, (0, common_1.Param)('rehearsalId', common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, Number]),
+    __metadata("design:returntype", void 0)
+], EngagementController.prototype, "deleteRehearsal", null);
 __decorate([
     (0, common_1.Get)(':id/performances'),
     __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
@@ -772,6 +852,63 @@ __decorate([
     __metadata("design:paramtypes", [Number, Number]),
     __metadata("design:returntype", void 0)
 ], EngagementController.prototype, "deleteTravel", null);
+__decorate([
+    (0, common_1.Put)(':id/travel/drillbits'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, Object]),
+    __metadata("design:returntype", void 0)
+], EngagementController.prototype, "upsertTravelDrillBits", null);
+__decorate([
+    (0, common_1.Get)(':id/buyouts'),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number]),
+    __metadata("design:returntype", void 0)
+], EngagementController.prototype, "getEngagementBuyouts", null);
+__decorate([
+    (0, common_1.Put)(':id/buyouts'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, Object]),
+    __metadata("design:returntype", void 0)
+], EngagementController.prototype, "upsertEngagementBuyouts", null);
+__decorate([
+    (0, common_1.Get)(':id/equipment-rentals'),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number]),
+    __metadata("design:returntype", void 0)
+], EngagementController.prototype, "getEquipmentRentals", null);
+__decorate([
+    (0, common_1.Put)(':id/equipment-rentals'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, Object]),
+    __metadata("design:returntype", void 0)
+], EngagementController.prototype, "upsertEquipmentRentals", null);
+__decorate([
+    (0, common_1.Get)(':id/production-misc'),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number]),
+    __metadata("design:returntype", void 0)
+], EngagementController.prototype, "getProductionMisc", null);
+__decorate([
+    (0, common_1.Patch)(':id/production-misc'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.NO_CONTENT),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, Object]),
+    __metadata("design:returntype", void 0)
+], EngagementController.prototype, "updateProductionMisc", null);
 __decorate([
     (0, common_1.Get)(':id/contracts'),
     __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),

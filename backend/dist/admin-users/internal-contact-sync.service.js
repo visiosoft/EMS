@@ -20,7 +20,7 @@ const crypto_1 = require("crypto");
 const typeorm_2 = require("typeorm");
 const admin_users_constants_1 = require("./admin-users.constants");
 const admin_users_service_1 = require("./admin-users.service");
-const DEFAULT_INTERNAL_ROLE_NAME = 'Internal Staff';
+const DEFAULT_INTERNAL_ROLE_NAME = 'Unknown';
 const DEFAULT_DEPARTMENT_NAME = 'Unknown';
 const SYNC_AUDIT_USER = 'Entra manual sync';
 const GRAPH_BASE_URL = 'https://graph.microsoft.com/v1.0';
@@ -134,26 +134,35 @@ let InternalContactSyncService = class InternalContactSyncService {
         let updated = 0;
         let removed = 0;
         let skippedJobTitleWrites = 0;
-        await this.dataSource.transaction(async (manager) => {
-            for (const contact of removeTargets) {
-                await this.removeInternalCompanyAssignments(manager, model.preview.internalCompany.companyId, contact.contactId);
-                removed += 1;
-            }
-            for (const user of createTargets) {
-                if (!user.accountEnabled || !normalizeEmail(user.email)) {
-                    errors.push(`${user.displayName} was skipped.`);
-                    continue;
+        try {
+            await this.dataSource.transaction(async (manager) => {
+                for (const contact of removeTargets) {
+                    await this.removeInternalCompanyAssignments(manager, model.preview.internalCompany.companyId, contact.contactId);
+                    removed += 1;
                 }
-                const result = await this.createInternalContactFromEntra(manager, model.preview.internalCompany.companyId, user, model.preview.jobTitleColumnAvailable);
-                created += 1;
-                skippedJobTitleWrites += result.skippedJobTitleWrites;
-            }
-            for (const { user, contact, selectedFields } of updateTargets.values()) {
-                const result = await this.updateInternalContactFromEntra(manager, model.preview.internalCompany.companyId, contact, user, model.preview.jobTitleColumnAvailable, selectedFields);
-                updated += 1;
-                skippedJobTitleWrites += result.skippedJobTitleWrites;
-            }
-        });
+                for (const user of createTargets) {
+                    if (!user.accountEnabled || !normalizeEmail(user.email)) {
+                        errors.push(`${user.displayName} was skipped.`);
+                        continue;
+                    }
+                    const result = await this.createInternalContactFromEntra(manager, model.preview.internalCompany.companyId, user, model.ciJobTitleAvailable, model.preview.jobTitleColumnAvailable);
+                    created += 1;
+                    skippedJobTitleWrites += result.skippedJobTitleWrites;
+                }
+                for (const { user, contact, selectedFields } of updateTargets.values()) {
+                    const result = await this.updateInternalContactFromEntra(manager, model.preview.internalCompany.companyId, contact, user, model.ciJobTitleAvailable, model.preview.jobTitleColumnAvailable, selectedFields);
+                    updated += 1;
+                    skippedJobTitleWrites += result.skippedJobTitleWrites;
+                }
+            });
+        }
+        catch (error) {
+            created = 0;
+            updated = 0;
+            removed = 0;
+            skippedJobTitleWrites = 0;
+            errors.push(`Sync failed and transaction was reverted: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
         return {
             appliedAt: new Date().toISOString(),
             internalCompany: model.preview.internalCompany,
@@ -278,17 +287,46 @@ let InternalContactSyncService = class InternalContactSyncService {
         };
     }
     async buildEntraToEmsSyncModel(graphAccessToken) {
-        const [internalCompany, jobTitleColumnAvailable, users] = await Promise.all([
+        const [internalCompany, jobTitleColumnAvailable, ciJobTitleAvailable, users] = await Promise.all([
             this.getInternalCompany(),
             this.hasContactInfoJobTitleColumn(),
+            this.hasContactInfoJobTitleColumnOnly(),
             this.adminUsersService.listUsersForSync(graphAccessToken),
         ]);
         const contacts = await this.loadInternalContacts(internalCompany.companyId, jobTitleColumnAvailable);
+        const dependencyRows = await this.dataSource.query(`
+      SELECT ca.ContactID as contactId,
+             CASE WHEN ec.ContactAssignmentID IS NOT NULL THEN 'Employee Computer' ELSE NULL END as computerDep,
+             CASE WHEN ewl.ContactAssignmentID IS NOT NULL THEN 'Employee Work Location' ELSE NULL END as locationDep,
+             CASE WHEN epe.ContactAssignmentID IS NOT NULL THEN 'Phone Extension' ELSE NULL END as phoneDep
+      FROM dbo.ContactAssignment ca
+      LEFT JOIN dbo.EmployeeComputer ec ON ec.ContactAssignmentID = ca.ContactAssignmentID
+      LEFT JOIN dbo.EmployeeWorkLocation ewl ON ewl.ContactAssignmentID = ca.ContactAssignmentID
+      LEFT JOIN dbo.EmployeePhoneExtension epe ON epe.ContactAssignmentID = ca.ContactAssignmentID
+      WHERE ca.CompanyID = @0
+      `, [internalCompany.companyId]);
+        const depsByContactId = new Map();
+        for (const row of dependencyRows) {
+            const cid = readNumber(row, 'contactId', 'ContactID');
+            if (!cid)
+                continue;
+            let set = depsByContactId.get(cid);
+            if (!set) {
+                set = new Set();
+                depsByContactId.set(cid, set);
+            }
+            if (row.computerDep)
+                set.add(row.computerDep);
+            if (row.locationDep)
+                set.add(row.locationDep);
+            if (row.phoneDep)
+                set.add(row.phoneDep);
+        }
         const contactsById = new Map(contacts.map((contact) => [contact.contactId, contact]));
         const usersById = new Map(users.map((user) => [user.id, user]));
         const contactsByEmail = groupBy(contacts, (contact) => normalizeEmail(contact.email));
         const contactsByName = groupBy(contacts, (contact) => normalizePersonName(contact.firstName, contact.lastName, ''));
-        const activeUsersByEmail = groupBy(users.filter((user) => user.accountEnabled && normalizeEmail(user.email)), (user) => normalizeEmail(user.email));
+        const activeUsersByEmail = groupBy(users.filter((user) => user.accountEnabled && normalizeEmail(user.email) && (0, admin_users_constants_1.isIaeEntraCompany)(user.companyName)), (user) => normalizeEmail(user.email));
         const activeEntraEmailSet = new Set(activeUsersByEmail.keys());
         const referencedContactIds = new Set();
         const rows = [];
@@ -297,6 +335,9 @@ let InternalContactSyncService = class InternalContactSyncService {
             warnings.push('ContactInfo.JobTitle does not exist yet. Job title values are shown but not written until the client adds the column.');
         }
         for (const user of users) {
+            if (!(0, admin_users_constants_1.isIaeEntraCompany)(user.companyName)) {
+                continue;
+            }
             const email = normalizeEmail(user.email);
             const duplicateEntraUsers = email ? activeUsersByEmail.get(email) ?? [] : [];
             if (!user.accountEnabled) {
@@ -305,12 +346,6 @@ let InternalContactSyncService = class InternalContactSyncService {
             }
             if (!email) {
                 rows.push(this.buildSkippedUserRow(user, 'User has no Entra email.'));
-                continue;
-            }
-            if (!(0, admin_users_constants_1.isIaeEntraCompany)(user.companyName)) {
-                rows.push(this.buildSkippedUserRow(user, user.companyName?.trim()
-                    ? `Skipped: Entra Company Name "${user.companyName.trim()}" is not ${admin_users_constants_1.IAE_ENTRA_COMPANY_NAME}.`
-                    : `Skipped: Entra Company Name is blank (must contain ${admin_users_constants_1.IAE_ENTRA_COMPANY_NAME}).`));
                 continue;
             }
             if (duplicateEntraUsers.length > 1) {
@@ -329,7 +364,16 @@ let InternalContactSyncService = class InternalContactSyncService {
             if (emailMatches.length === 1) {
                 const contact = emailMatches[0];
                 referencedContactIds.add(contact.contactId);
-                rows.push(this.buildMatchedRow(user, contact, jobTitleColumnAvailable));
+                const matchedRow = this.buildMatchedRow(user, contact, jobTitleColumnAvailable);
+                const deps = depsByContactId.get(contact.contactId);
+                if (deps && deps.size > 0) {
+                    const entraDepartments = parseEntraDepartments(user.department);
+                    const newAssignmentCount = Math.max(1, entraDepartments.length);
+                    if (newAssignmentCount < contact.assignments.length) {
+                        matchedRow.dependencies = Array.from(deps);
+                    }
+                }
+                rows.push(matchedRow);
                 continue;
             }
             if (emailMatches.length > 1) {
@@ -377,14 +421,16 @@ let InternalContactSyncService = class InternalContactSyncService {
             const email = normalizeEmail(contact.email);
             if (email && activeEntraEmailSet.has(email))
                 continue;
+            const deps = depsByContactId.get(contact.contactId);
             rows.push({
                 actionId: `remove:${contact.contactId}`,
                 type: 'remove',
-                reason: 'Exists in EMS internal contacts but not in active Entra users. Applying removes it from the internal company.',
+                reason: 'Exists in EMS internal contacts but is not an active member of the Entra company. Applying removes it from the internal company.',
                 contactId: contact.contactId,
                 emsName: formatContactName(contact),
                 emsEmail: contact.email,
                 changes: [],
+                dependencies: deps && deps.size > 0 ? Array.from(deps) : undefined,
             });
         }
         const counts = createEmptyCounts();
@@ -402,6 +448,7 @@ let InternalContactSyncService = class InternalContactSyncService {
             },
             usersById,
             contactsById,
+            ciJobTitleAvailable,
         };
     }
     async buildEmsToEntraSyncModel(graphAccessToken) {
@@ -549,6 +596,7 @@ let InternalContactSyncService = class InternalContactSyncService {
             },
             usersById,
             contactsById,
+            ciJobTitleAvailable: jobTitleColumnAvailable,
         };
     }
     async getInternalCompany() {
@@ -572,17 +620,38 @@ let InternalContactSyncService = class InternalContactSyncService {
     async hasContactInfoJobTitleColumn(executor = this.dataSource) {
         const rows = await executor.query(`
       SELECT 1 AS hasColumn
-      FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = 'dbo'
-        AND TABLE_NAME = 'ContactInfo'
-        AND COLUMN_NAME = 'JobTitle'
+      WHERE
+        COL_LENGTH('dbo.ContactInfo', 'JobTitle') IS NOT NULL
+        OR COL_LENGTH('dbo.EmployeeProfile', 'JobTitle') IS NOT NULL
       `);
         return rows.length > 0;
     }
+    async hasContactInfoJobTitleColumnOnly(executor = this.dataSource) {
+        const rows = await executor.query(`SELECT 1 AS x WHERE COL_LENGTH('dbo.ContactInfo', 'JobTitle') IS NOT NULL`);
+        return rows.length > 0;
+    }
+    async upsertEmployeeProfileJobTitle(manager, contactId, jobTitle) {
+        const hasCol = await manager.query(`SELECT 1 AS x FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='EmployeeProfile' AND COLUMN_NAME='JobTitle'`);
+        if (hasCol.length === 0)
+            return;
+        const exists = await manager.query(`SELECT 1 AS x FROM dbo.EmployeeProfile WHERE ContactID = @0`, [contactId]);
+        if (exists.length > 0) {
+            await manager.query(`UPDATE dbo.EmployeeProfile SET JobTitle = @0 WHERE ContactID = @1`, [jobTitle, contactId]);
+        }
+        else {
+            await manager.query(`INSERT INTO dbo.EmployeeProfile (ContactID, JobTitle, created_by, created_at, modified_by, modified_at)
+         VALUES (@0, @1, @2, SYSUTCDATETIME(), @2, SYSUTCDATETIME())`, [contactId, jobTitle, 'Entra contact sync']);
+        }
+    }
     async loadInternalContacts(companyId, jobTitleColumnAvailable) {
-        const jobTitleSelect = jobTitleColumnAvailable
+        const ciHasJobTitle = await this.hasContactInfoJobTitleColumnOnly();
+        const jobTitleSelect = ciHasJobTitle
             ? 'ci.JobTitle AS jobTitle'
-            : 'CAST(NULL AS nvarchar(150)) AS jobTitle';
+            : 'ep.JobTitle AS jobTitle';
+        const epJoin = ciHasJobTitle
+            ? ''
+            : 'LEFT JOIN dbo.EmployeeProfile ep ON ep.ContactID = c.ContactID';
         const rows = await this.dataSource.query(`
       SELECT
         c.ContactID AS contactId,
@@ -592,6 +661,7 @@ let InternalContactSyncService = class InternalContactSyncService {
         ci.Email AS email,
         ci.CellPhone AS cellPhone,
         ci.WorkPhone AS workPhone,
+        ci.WorkPhoneExtension AS workPhoneExtension,
         ${jobTitleSelect},
         ca.ContactAssignmentID AS contactAssignmentId,
         ca.RoleID AS roleId,
@@ -601,6 +671,7 @@ let InternalContactSyncService = class InternalContactSyncService {
       FROM dbo.ContactAssignment ca
       INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+      ${epJoin}
       LEFT JOIN dbo.Role r ON r.RoleID = ca.RoleID
       LEFT JOIN dbo.Department d ON d.DepartmentID = ca.DepartmentID
       WHERE ca.CompanyID = @0
@@ -622,6 +693,7 @@ let InternalContactSyncService = class InternalContactSyncService {
                     email: readString(row, 'email', 'Email'),
                     cellPhone: readString(row, 'cellPhone', 'CellPhone'),
                     workPhone: readString(row, 'workPhone', 'WorkPhone'),
+                    workPhoneExtension: readString(row, 'workPhoneExtension', 'WorkPhoneExtension'),
                     jobTitle: readString(row, 'jobTitle', 'JobTitle'),
                     assignments: [],
                 };
@@ -694,7 +766,8 @@ let InternalContactSyncService = class InternalContactSyncService {
         ];
         addOptionalChange(changes, 'cellPhone', 'Cell Phone', null, trimToMax(user.mobilePhone, 30));
         addOptionalChange(changes, 'workPhone', 'Work Phone', null, trimToMax(firstBusinessPhone(user), 30));
-        addOptionalChange(changes, 'department', 'Department', null, normalizeLookupName(user.department) || DEFAULT_DEPARTMENT_NAME);
+        const parsedDepts = parseEntraDepartments(user.department);
+        addOptionalChange(changes, 'department', 'Department', null, parsedDepts.length > 0 ? parsedDepts.join(', ') : DEFAULT_DEPARTMENT_NAME);
         this.addJobTitleChange(changes, null, user.jobTitle, jobTitleColumnAvailable);
         return changes;
     }
@@ -708,13 +781,24 @@ let InternalContactSyncService = class InternalContactSyncService {
         });
         addComparableChange(changes, 'cellPhone', 'Cell Phone', contact.cellPhone, trimToMax(user.mobilePhone, 30), { compareAsPhone: true });
         addComparableChange(changes, 'workPhone', 'Work Phone', contact.workPhone, trimToMax(firstBusinessPhone(user), 30), { compareAsPhone: true });
-        const entraDepartment = normalizeLookupName(user.department);
-        if (entraDepartment) {
+        const entraDepartments = parseEntraDepartments(user.department);
+        if (entraDepartments.length > 0) {
             const currentDepartments = uniqueClean(contact.assignments.map((assignment) => assignment.departmentName));
             const currentDepartmentLabel = currentDepartments.join(', ');
-            if (!currentDepartments.some((department) => normalizeLookupName(department).toLowerCase() ===
-                entraDepartment.toLowerCase())) {
-                changes.push(change('department', 'Department', currentDepartmentLabel || null, entraDepartment));
+            const entraDepartmentLabel = entraDepartments.join(', ');
+            const currentSet = new Set(currentDepartments.map(d => normalizeLookupName(d).toLowerCase()));
+            const entraSet = new Set(entraDepartments.map(d => d.toLowerCase()));
+            let isDifferent = currentSet.size !== entraSet.size;
+            if (!isDifferent) {
+                for (const d of entraSet) {
+                    if (!currentSet.has(d)) {
+                        isDifferent = true;
+                        break;
+                    }
+                }
+            }
+            if (isDifferent) {
+                changes.push(change('department', 'Department', currentDepartmentLabel || null, entraDepartmentLabel));
             }
         }
         this.addJobTitleChange(changes, contact.jobTitle, user.jobTitle, jobTitleColumnAvailable);
@@ -729,10 +813,13 @@ let InternalContactSyncService = class InternalContactSyncService {
             change('accountEnabled', 'Account Status', null, 'Active'),
         ];
         addOptionalChange(changes, 'mobilePhone', 'Mobile Phone', null, trimToMax(contact.cellPhone, 30));
-        addOptionalChange(changes, 'businessPhones', 'Work Phone', null, trimToMax(contact.workPhone, 30));
+        addOptionalChange(changes, 'businessPhones', 'Work Phone', null, trimToMax(combinePhoneAndExtension(contact.workPhone, contact.workPhoneExtension), 30));
         addOptionalChange(changes, 'department', 'Department', null, primaryDepartmentName(contact));
         if (jobTitleColumnAvailable) {
             addOptionalChange(changes, 'jobTitle', 'Job Title', null, trimToMax(contact.jobTitle, 150));
+        }
+        else {
+            this.addJobTitleChange(changes, null, contact.jobTitle, false);
         }
         return changes;
     }
@@ -743,11 +830,9 @@ let InternalContactSyncService = class InternalContactSyncService {
         addComparableChange(changes, 'surname', 'Last Name', user.surname, contact.lastName);
         addComparableChange(changes, 'userPrincipalName', 'Email / UPN', user.userPrincipalName || user.email, contact.email, { compareAsEmail: true });
         addComparableChange(changes, 'mobilePhone', 'Mobile Phone', user.mobilePhone, trimToMax(contact.cellPhone, 30), { compareAsPhone: true });
-        addComparableChange(changes, 'businessPhones', 'Work Phone', firstBusinessPhone(user), trimToMax(contact.workPhone, 30), { compareAsPhone: true });
+        addComparableChange(changes, 'businessPhones', 'Work Phone', firstBusinessPhoneRaw(user), trimToMax(combinePhoneAndExtension(contact.workPhone, contact.workPhoneExtension), 30), { compareAsPhone: true });
         addComparableChange(changes, 'department', 'Department', user.department, primaryDepartmentName(contact));
-        if (jobTitleColumnAvailable) {
-            addComparableChange(changes, 'jobTitle', 'Job Title', user.jobTitle, trimToMax(contact.jobTitle, 150));
-        }
+        this.addJobTitleChange(changes, user.jobTitle, contact.jobTitle, jobTitleColumnAvailable);
         if (!user.accountEnabled) {
             changes.push(change('accountEnabled', 'Account Status', 'Disabled', 'Active'));
         }
@@ -760,7 +845,7 @@ let InternalContactSyncService = class InternalContactSyncService {
         if (!jobTitleColumnAvailable) {
             changes.push(change('jobTitle', 'Job Title', currentValue, nextValue, {
                 skipped: true,
-                reason: 'ContactInfo.JobTitle column has not been added yet.',
+                reason: 'JobTitle is not available on dbo.ContactInfo or dbo.EmployeeProfile.',
             }));
             return;
         }
@@ -784,13 +869,20 @@ let InternalContactSyncService = class InternalContactSyncService {
             roles: [user.accountEnabled ? 'Active' : 'Disabled'],
         };
     }
-    async createInternalContactFromEntra(manager, companyId, user, jobTitleColumnAvailable) {
+    async createInternalContactFromEntra(manager, companyId, user, contactInfoJobTitleAvailable, anyJobTitleTargetAvailable) {
         const names = getEntraNames(user);
         const email = trimToMax(user.email, 254);
         const cellPhone = nullableText(trimToMax(user.mobilePhone, 30));
         const workPhone = nullableText(trimToMax(firstBusinessPhone(user), 30));
         const jobTitle = trimToMax(user.jobTitle, 150);
-        const departmentId = await this.findOrCreateDepartment(manager, normalizeLookupName(user.department) || DEFAULT_DEPARTMENT_NAME);
+        const departmentNames = parseEntraDepartments(user.department);
+        if (departmentNames.length === 0) {
+            departmentNames.push(DEFAULT_DEPARTMENT_NAME);
+        }
+        const departmentIds = [];
+        for (const name of departmentNames) {
+            departmentIds.push(await this.findOrCreateDepartment(manager, name));
+        }
         const roleId = await this.findOrCreateRole(manager, DEFAULT_INTERNAL_ROLE_NAME);
         const existingContactRows = await manager.query(`
       SELECT TOP 1 c.ContactID AS contactId, ci.ContactInfoID AS contactInfoId
@@ -801,7 +893,7 @@ let InternalContactSyncService = class InternalContactSyncService {
         let contactId = readNumber(existingContactRows[0], 'contactId', 'ContactID') ?? 0;
         let contactInfoId = readNumber(existingContactRows[0], 'contactInfoId', 'ContactInfoID') ?? 0;
         if (!contactInfoId) {
-            const contactInfoRows = jobTitleColumnAvailable
+            const contactInfoRows = contactInfoJobTitleAvailable
                 ? await manager.query(`
             DECLARE @OutputTable TABLE (ContactInfoID int);
             INSERT INTO dbo.ContactInfo
@@ -838,7 +930,7 @@ let InternalContactSyncService = class InternalContactSyncService {
             }
         }
         else {
-            if (jobTitleColumnAvailable) {
+            if (contactInfoJobTitleAvailable) {
                 await manager.query(`
           UPDATE dbo.ContactInfo
           SET FirstName = @0, LastName = @1, CellPhone = @2, WorkPhone = @3, JobTitle = @4
@@ -879,31 +971,15 @@ let InternalContactSyncService = class InternalContactSyncService {
                 throw new common_1.BadRequestException('Unable to create internal contact.');
             }
         }
-        const existingAssignmentRows = await manager.query(`
-      SELECT TOP 1 ContactAssignmentID AS assignmentId
-      FROM dbo.ContactAssignment
-      WHERE ContactID = @0 AND CompanyID = @1
-      `, [contactId, companyId]);
-        const assignmentId = readNumber(existingAssignmentRows[0], 'assignmentId', 'ContactAssignmentID');
-        if (assignmentId) {
-            await manager.query(`
-        UPDATE dbo.ContactAssignment
-        SET RoleID = @0, DepartmentID = @1, modified_by = @2, modified_at = SYSUTCDATETIME()
-        WHERE ContactAssignmentID = @3
-        `, [roleId, departmentId, SYNC_AUDIT_USER, assignmentId]);
-        }
-        else {
-            await manager.query(`
-        INSERT INTO dbo.ContactAssignment
-          (ContactID, CompanyID, RoleID, DepartmentID, created_by, created_at)
-        VALUES (@0, @1, @2, @3, @4, SYSUTCDATETIME())
-        `, [contactId, companyId, roleId, departmentId, SYNC_AUDIT_USER]);
+        await this.syncContactAssignments(manager, contactId, companyId, roleId, departmentIds);
+        if (jobTitle) {
+            await this.upsertEmployeeProfileJobTitle(manager, contactId, jobTitle);
         }
         return {
-            skippedJobTitleWrites: jobTitle && !jobTitleColumnAvailable ? 1 : 0,
+            skippedJobTitleWrites: jobTitle && !anyJobTitleTargetAvailable ? 1 : 0,
         };
     }
-    async updateInternalContactFromEntra(manager, companyId, contact, user, jobTitleColumnAvailable, selectedFieldsArray) {
+    async updateInternalContactFromEntra(manager, companyId, contact, user, contactInfoJobTitleAvailable, anyJobTitleTargetAvailable, selectedFieldsArray) {
         const selectedFields = selectedFieldsArray ? new Set(selectedFieldsArray) : null;
         const names = getEntraNames(user);
         const email = trimToMax(user.email, 254);
@@ -916,7 +992,7 @@ let InternalContactSyncService = class InternalContactSyncService {
         const finalCellPhone = selectedFields && !selectedFields.has('cellPhone') ? contact.cellPhone : cellPhone;
         const finalWorkPhone = selectedFields && !selectedFields.has('workPhone') ? contact.workPhone : workPhone;
         const finalJobTitle = selectedFields && !selectedFields.has('jobTitle') ? contact.jobTitle : nullableText(jobTitle);
-        if (jobTitleColumnAvailable) {
+        if (contactInfoJobTitleAvailable) {
             await manager.query(`
         UPDATE dbo.ContactInfo
         SET FirstName = @0,
@@ -956,34 +1032,100 @@ let InternalContactSyncService = class InternalContactSyncService {
         }
         const shouldUpdateDepartment = !selectedFields || selectedFields.has('department');
         if (shouldUpdateDepartment) {
-            const departmentName = normalizeLookupName(user.department);
-            if (departmentName) {
-                const departmentId = await this.findOrCreateDepartment(manager, departmentName);
-                await manager.query(`
-          UPDATE dbo.ContactAssignment
-          SET DepartmentID = @0,
-              modified_by = @1,
-              modified_at = SYSUTCDATETIME()
-          WHERE ContactID = @2
-            AND CompanyID = @3
-          `, [departmentId, SYNC_AUDIT_USER, contact.contactId, companyId]);
+            const departmentNames = parseEntraDepartments(user.department);
+            if (departmentNames.length > 0) {
+                const departmentIds = [];
+                for (const name of departmentNames) {
+                    departmentIds.push(await this.findOrCreateDepartment(manager, name));
+                }
+                const roleId = await this.findOrCreateRole(manager, DEFAULT_INTERNAL_ROLE_NAME);
+                await this.syncContactAssignments(manager, contact.contactId, companyId, roleId, departmentIds);
             }
         }
+        if (finalJobTitle && (!selectedFields || selectedFields.has('jobTitle'))) {
+            await this.upsertEmployeeProfileJobTitle(manager, contact.contactId, finalJobTitle);
+        }
         return {
-            skippedJobTitleWrites: (!selectedFields || selectedFields.has('jobTitle')) && jobTitle && !jobTitleColumnAvailable ? 1 : 0,
+            skippedJobTitleWrites: (!selectedFields || selectedFields.has('jobTitle')) && jobTitle && !anyJobTitleTargetAvailable
+                ? 1
+                : 0,
         };
+    }
+    async syncContactAssignments(manager, contactId, companyId, roleId, departmentIds) {
+        const existing = await manager.query(`SELECT ContactAssignmentID AS id, DepartmentID AS departmentId, RoleID as roleId
+       FROM dbo.ContactAssignment
+       WHERE ContactID = @0 AND CompanyID = @1
+       ORDER BY ContactAssignmentID`, [contactId, companyId]);
+        const existingById = new Map();
+        const existingByDept = new Map();
+        for (const row of existing) {
+            const id = readNumber(row, 'id', 'ContactAssignmentID');
+            const deptId = readNumber(row, 'departmentId', 'DepartmentID');
+            const rId = readNumber(row, 'roleId', 'RoleID');
+            if (id != null && deptId != null) {
+                existingById.set(id, { id, departmentId: deptId, roleId: rId ?? roleId });
+                existingByDept.set(deptId, id);
+            }
+        }
+        const existingIds = Array.from(existingById.keys());
+        const desiredDeptSet = new Set(departmentIds);
+        const keptAssignmentIds = new Set();
+        for (const deptId of departmentIds) {
+            const existingAssignmentId = existingByDept.get(deptId);
+            if (existingAssignmentId != null) {
+                keptAssignmentIds.add(existingAssignmentId);
+            }
+        }
+        const unmatched = existingIds.filter((id) => !keptAssignmentIds.has(id));
+        const deptsThatNeedSlot = departmentIds.filter((deptId) => !existingByDept.has(deptId));
+        for (let i = 0; i < deptsThatNeedSlot.length; i++) {
+            const deptId = deptsThatNeedSlot[i];
+            if (i < unmatched.length) {
+                const reuseId = unmatched[i];
+                const existingRoleId = existingById.get(reuseId)?.roleId ?? roleId;
+                await manager.query(`UPDATE dbo.ContactAssignment SET DepartmentID = @0, RoleID = @1, modified_by = @2, modified_at = SYSUTCDATETIME() WHERE ContactAssignmentID = @3`, [deptId, existingRoleId, SYNC_AUDIT_USER, reuseId]);
+                keptAssignmentIds.add(reuseId);
+            }
+            else {
+                const duplicateCheck = await manager.query(`SELECT ContactAssignmentID AS id FROM dbo.ContactAssignment WHERE ContactID = @0 AND CompanyID = @1 AND RoleID = @2 AND DepartmentID = @3`, [contactId, companyId, roleId, deptId]);
+                if (duplicateCheck.length === 0) {
+                    try {
+                        await manager.query(`INSERT INTO dbo.ContactAssignment (ContactID, CompanyID, RoleID, DepartmentID, created_by, created_at) VALUES (@0, @1, @2, @3, @4, SYSUTCDATETIME())`, [contactId, companyId, roleId, deptId, SYNC_AUDIT_USER]);
+                    }
+                    catch (err) {
+                        const msg = err instanceof Error ? err.message : '';
+                        if (!msg.includes('UQ_CA_Contact_Company_Role_Department'))
+                            throw err;
+                    }
+                }
+            }
+        }
+        const obsoleteIds = unmatched.slice(deptsThatNeedSlot.length);
+        for (const obsoleteId of obsoleteIds) {
+            await manager.query(`DELETE FROM dbo.EmployeeComputer WHERE ContactAssignmentID = @0`, [obsoleteId]);
+            await manager.query(`DELETE FROM dbo.EmployeeWorkLocation WHERE ContactAssignmentID = @0`, [obsoleteId]);
+            await manager.query(`DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID = @0`, [obsoleteId]);
+            await manager.query(`DELETE FROM dbo.ContactAssignment WHERE ContactAssignmentID = @0`, [obsoleteId]);
+        }
     }
     async removeInternalCompanyAssignments(manager, companyId, contactId) {
         const assignmentRows = await manager.query(`
       SELECT ContactAssignmentID AS contactAssignmentId
       FROM dbo.ContactAssignment
       WHERE ContactID = @0
-        AND CompanyID = @1
-      `, [contactId, companyId]);
+      `, [contactId]);
         const assignmentIds = assignmentRows
             .map((row) => readNumber(row, 'contactAssignmentId', 'ContactAssignmentID'))
             .filter((id) => id != null);
         if (assignmentIds.length > 0) {
+            await manager.query(`
+        DELETE FROM dbo.EmployeeComputer
+        WHERE ContactAssignmentID IN (${assignmentIds.map((_, index) => `@${index}`).join(',')})
+        `, assignmentIds);
+            await manager.query(`
+        DELETE FROM dbo.EmployeeWorkLocation
+        WHERE ContactAssignmentID IN (${assignmentIds.map((_, index) => `@${index}`).join(',')})
+        `, assignmentIds);
             await manager.query(`
         DELETE FROM dbo.EmployeePhoneExtension
         WHERE ContactAssignmentID IN (${assignmentIds.map((_, index) => `@${index}`).join(',')})
@@ -992,8 +1134,19 @@ let InternalContactSyncService = class InternalContactSyncService {
         await manager.query(`
       DELETE FROM dbo.ContactAssignment
       WHERE ContactID = @0
-        AND CompanyID = @1
-      `, [contactId, companyId]);
+      `, [contactId]);
+        const contactRow = await manager.query(`SELECT ContactInfoID AS contactInfoId FROM dbo.Contact WHERE ContactID = @0`, [contactId]);
+        const contactInfoId = contactRow[0] ? readNumber(contactRow[0], 'contactInfoId', 'ContactInfoID') : null;
+        await manager.query(`
+      DELETE FROM dbo.Contact
+      WHERE ContactID = @0
+      `, [contactId]);
+        if (contactInfoId) {
+            await manager.query(`
+        DELETE FROM dbo.ContactInfo
+        WHERE ContactInfoID = @0
+        `, [contactInfoId]);
+        }
     }
     async createEntraUserFromEmsContact(graphAccessToken, contact, jobTitleColumnAvailable) {
         const temporaryPassword = this.generateTemporaryPassword();
@@ -1008,7 +1161,13 @@ let InternalContactSyncService = class InternalContactSyncService {
     async updateEntraUserFromEmsContact(graphAccessToken, entraUserId, contact, jobTitleColumnAvailable, includeEmailFields, selectedFieldsArray) {
         const payload = this.buildEntraUserPayloadFromEmsContact(contact, jobTitleColumnAvailable, false, null, includeEmailFields, selectedFieldsArray);
         await this.graphRequest(graphAccessToken, 'PATCH', `${GRAPH_BASE_URL}/users/${encodeURIComponent(entraUserId)}`, payload);
-        await this.verifyEntraUserPayload(graphAccessToken, entraUserId, payload);
+        try {
+            await this.verifyEntraUserPayload(graphAccessToken, entraUserId, payload);
+        }
+        catch (verifyErr) {
+            const msg = verifyErr instanceof Error ? verifyErr.message : String(verifyErr);
+            console.warn(`[ContactSync] Verify warning for ${entraUserId}: ${msg}`);
+        }
     }
     async disableEntraUser(graphAccessToken, entraUserId) {
         await this.graphRequest(graphAccessToken, 'PATCH', `${GRAPH_BASE_URL}/users/${encodeURIComponent(entraUserId)}`, { accountEnabled: false });
@@ -1028,17 +1187,23 @@ let InternalContactSyncService = class InternalContactSyncService {
             payload.surname = nullableText(trimToMax(contact.lastName, 64));
         }
         if (!selectedFields || selectedFields.has('cellPhone')) {
-            payload.mobilePhone = nullableText(trimToMax(contact.cellPhone, 30));
+            payload.mobilePhone = nullableText(trimToMax(sanitizePhoneForGraph(contact.cellPhone), 30));
         }
         if (!selectedFields || selectedFields.has('workPhone')) {
-            payload.businessPhones = contact.workPhone ? [trimToMax(contact.workPhone, 30)] : [];
+            const sanitizedPhone = sanitizePhoneForGraph(contact.workPhone);
+            const combined = combinePhoneAndExtension(sanitizedPhone, contact.workPhoneExtension);
+            payload.businessPhones = combined ? [trimToMax(combined, 30)] : [];
         }
         if (!selectedFields || selectedFields.has('department')) {
-            payload.department = nullableText(primaryDepartmentName(contact));
+            payload.department = nullableText(trimToMax(primaryDepartmentName(contact), 64));
         }
         if (includeEmailFields && (!selectedFields || selectedFields.has('email'))) {
-            payload.userPrincipalName = email;
-            payload.mailNickname = makeMailNickname(email, displayName);
+            if (email && email.includes('@') && !email.includes(' ')) {
+                if (forCreate) {
+                    payload.userPrincipalName = email;
+                    payload.mailNickname = makeMailNickname(email, displayName);
+                }
+            }
         }
         if (jobTitleColumnAvailable && (!selectedFields || selectedFields.has('jobTitle'))) {
             payload.jobTitle = nullableText(trimToMax(contact.jobTitle, 128));
@@ -1109,6 +1274,7 @@ let InternalContactSyncService = class InternalContactSyncService {
         if (response.ok)
             return;
         const detail = await readResponseText(response);
+        console.warn(`[EntraSync] Graph ${method} ${url} failed (${response.status}):`, detail, 'Payload:', JSON.stringify(payload));
         throw new common_1.BadGatewayException({
             message: response.status === 403
                 ? 'Microsoft Entra rejected this update. Assign the EMSEntra Enterprise Application service principal the User Administrator role, and make sure User-Phone.ReadWrite.All application permission is admin-consented for phone updates.'
@@ -1165,14 +1331,31 @@ let InternalContactSyncService = class InternalContactSyncService {
     }
     async findOrCreateDepartment(executor, name) {
         const departmentName = normalizeLookupName(name) || DEFAULT_DEPARTMENT_NAME;
-        const existingRows = await executor.query(`
-      SELECT TOP 1 DepartmentID AS departmentId
-      FROM dbo.Department
-      WHERE LOWER(LTRIM(RTRIM(DepartmentName))) = LOWER(@0)
-      `, [departmentName]);
-        const existingId = readNumber(existingRows[0], 'departmentId', 'DepartmentID');
-        if (existingId)
-            return existingId;
+        const allDepartments = await executor.query(`SELECT DepartmentID AS departmentId, DepartmentName AS departmentName FROM dbo.Department`);
+        const target = departmentName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        let bestMatchId = null;
+        let exactMatchId = null;
+        for (const row of allDepartments) {
+            const existingName = readString(row, 'departmentName', 'DepartmentName');
+            const id = readNumber(row, 'departmentId', 'DepartmentID');
+            if (!existingName || !id)
+                continue;
+            const normalized = existingName.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (normalized === target) {
+                exactMatchId = id;
+                break;
+            }
+            if (target.length > 3 && normalized.length > 3) {
+                const distance = levenshteinDistance(target, normalized);
+                if (distance <= 2) {
+                    bestMatchId = id;
+                }
+            }
+        }
+        if (exactMatchId)
+            return exactMatchId;
+        if (bestMatchId)
+            return bestMatchId;
         const rows = await executor.query(`
       DECLARE @OutputDept TABLE (DepartmentID int);
       INSERT INTO dbo.Department (DepartmentName)
@@ -1308,9 +1491,31 @@ function fallbackFirstName(user) {
     return emailLocalPart || 'Entra user';
 }
 function firstBusinessPhone(user) {
+    return splitPhoneAndExtension(firstBusinessPhoneRaw(user)).phone;
+}
+function firstBusinessPhoneExtension(user) {
+    return splitPhoneAndExtension(firstBusinessPhoneRaw(user)).extension;
+}
+function firstBusinessPhoneRaw(user) {
     return Array.isArray(user.businessPhones)
         ? cleanText(user.businessPhones.find((phone) => cleanText(phone)) ?? '')
         : '';
+}
+function splitPhoneAndExtension(raw) {
+    const s = raw.trim();
+    if (!s)
+        return { phone: '', extension: '' };
+    const match = s.match(/^(.*?)[\s,;-]*(?:x|ext\.?|extension)\s*(\d+)\s*$/i);
+    if (match)
+        return { phone: match[1].trim(), extension: match[2] };
+    return { phone: s, extension: '' };
+}
+function combinePhoneAndExtension(phone, extension) {
+    const p = String(phone ?? '').trim();
+    const e = String(extension ?? '').trim();
+    if (!p)
+        return e ? `x${e}` : '';
+    return e ? `${p} x${e}` : p;
 }
 function normalizePersonNameFromUser(user) {
     const names = getEntraNames(user);
@@ -1325,7 +1530,7 @@ function formatContactName(contact) {
         `Contact ${contact.contactId}`);
 }
 function primaryDepartmentName(contact) {
-    return uniqueClean(contact.assignments.map((assignment) => assignment.departmentName))[0] ?? '';
+    return uniqueClean(contact.assignments.map((assignment) => assignment.departmentName)).join(' & ');
 }
 function makeMailNickname(email, displayName) {
     const localPart = cleanText(email).split('@')[0];
@@ -1425,6 +1630,21 @@ function isGraphAuthorizationDenied(error) {
     return /status 403|Authorization_RequestDenied|Insufficient privileges/i.test(text);
 }
 function formatSyncError(prefix, error) {
+    if (error && typeof error === 'object') {
+        if ('getResponse' in error && typeof error.getResponse === 'function') {
+            const resp = error.getResponse();
+            if (resp && typeof resp === 'object') {
+                const detail = resp.detail;
+                if (typeof detail === 'string' && detail) {
+                    return `${prefix}: ${detail}`;
+                }
+                const message = resp.message;
+                if (typeof message === 'string' && message) {
+                    return `${prefix}: ${message}`;
+                }
+            }
+        }
+    }
     if (error instanceof Error && error.message) {
         return `${prefix}: ${error.message}`;
     }
@@ -1469,8 +1689,44 @@ function nullableText(value) {
     const cleaned = cleanText(value);
     return cleaned ? cleaned : null;
 }
+function parseEntraDepartments(departmentStr) {
+    const cleaned = cleanText(departmentStr);
+    if (!cleaned)
+        return [];
+    return cleaned.split('&').map(d => trimToMax(cleanText(d), 100)).filter(Boolean);
+}
+function levenshteinDistance(a, b) {
+    if (a.length === 0)
+        return b.length;
+    if (b.length === 0)
+        return a.length;
+    const matrix = [];
+    for (let i = 0; i <= b.length; i++) {
+        matrix[i] = [i];
+    }
+    for (let j = 0; j <= a.length; j++) {
+        matrix[0][j] = j;
+    }
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            }
+            else {
+                matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1));
+            }
+        }
+    }
+    return matrix[b.length][a.length];
+}
 function trimToMax(value, maxLength) {
     return cleanText(value).slice(0, maxLength);
+}
+function sanitizePhoneForGraph(value) {
+    const cleaned = cleanText(value);
+    if (!cleaned)
+        return '';
+    return cleaned.replace(/\s*(x|ext\.?|extension)\s*\d+$/i, '').trim();
 }
 function readString(row, ...keys) {
     if (!row)

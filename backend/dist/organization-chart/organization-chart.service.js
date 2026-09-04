@@ -50,9 +50,6 @@ let OrganizationChartService = OrganizationChartService_1 = class OrganizationCh
         const jobTitleColumnAvailable = await this.hasContactInfoJobTitleColumn();
         const rows = await this.loadInternalContacts(company.companyId, jobTitleColumnAvailable);
         const warnings = [];
-        if (!jobTitleColumnAvailable) {
-            warnings.push('ContactInfo.JobTitle is not installed, so chart titles use existing internal roles.');
-        }
         const accessToken = this.resolveGraphToken(graphAccessToken);
         if (accessToken) {
             try {
@@ -97,6 +94,25 @@ let OrganizationChartService = OrganizationChartService_1 = class OrganizationCh
     resolveGraphToken(provided) {
         const token = String(provided ?? this.auditContext.getGraphAccessToken() ?? '').trim();
         return token || null;
+    }
+    overlayEntraJobTitles(rows, entraUsers) {
+        const entraByEmail = new Map();
+        for (const user of entraUsers) {
+            const email = user.mail ? normalizeEmail(user.mail) : null;
+            if (email && !entraByEmail.has(email)) {
+                entraByEmail.set(email, user);
+            }
+        }
+        for (const row of rows) {
+            const email = normalizeEmail(row['email'] ?? row['Email'] ?? '');
+            if (!email)
+                continue;
+            const entraUser = entraByEmail.get(email);
+            if (entraUser?.jobTitle) {
+                row['jobTitle'] = entraUser.jobTitle;
+                row['JobTitle'] = entraUser.jobTitle;
+            }
+        }
     }
     async fetchEntraUsersWithManagers(accessToken) {
         const users = [];
@@ -224,7 +240,8 @@ let OrganizationChartService = OrganizationChartService_1 = class OrganizationCh
                 email: readString(row, 'email', 'Email'),
                 cellPhone: readString(row, 'cellPhone', 'CellPhone'),
                 workPhone: readString(row, 'workPhone', 'WorkPhone'),
-                jobTitle: rawJobTitle || roleName || '',
+                extension: readString(row, 'extension', 'Extension'),
+                jobTitle: rawJobTitle || '',
                 roleName,
                 departmentName,
             });
@@ -250,9 +267,6 @@ let OrganizationChartService = OrganizationChartService_1 = class OrganizationCh
         const jobTitleColumnAvailable = await this.hasContactInfoJobTitleColumn();
         const rows = await this.loadInternalContacts(company.companyId, jobTitleColumnAvailable);
         const warnings = [];
-        if (!jobTitleColumnAvailable) {
-            warnings.push('ContactInfo.JobTitle is not installed, so chart titles use existing internal roles.');
-        }
         return {
             configured: true,
             generatedAt,
@@ -275,6 +289,16 @@ let OrganizationChartService = OrganizationChartService_1 = class OrganizationCh
         }))
             .filter((company) => company.companyId > 0);
     }
+    async hasEmployeeProfileDepartment2Column() {
+        const rows = await this.dataSource.query(`
+      SELECT 1 AS hasColumn
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = 'dbo'
+        AND TABLE_NAME = 'EmployeeProfile'
+        AND COLUMN_NAME = 'Department2'
+      `);
+        return rows.length > 0;
+    }
     async hasContactInfoJobTitleColumn() {
         const rows = await this.dataSource.query(`
       SELECT 1 AS hasColumn
@@ -286,9 +310,10 @@ let OrganizationChartService = OrganizationChartService_1 = class OrganizationCh
         return rows.length > 0;
     }
     async loadInternalContacts(companyId, jobTitleColumnAvailable) {
-        const jobTitleSelect = jobTitleColumnAvailable
-            ? "COALESCE(NULLIF(LTRIM(RTRIM(ci.JobTitle)), ''), rolePick.roleName, '')"
-            : "COALESCE(rolePick.roleName, '')";
+        const jobTitleSelect = "COALESCE(NULLIF(LTRIM(RTRIM(ep.JobTitle)), ''), '')";
+        const department2Select = (await this.hasEmployeeProfileDepartment2Column())
+            ? "COALESCE(ep.Department2, '')"
+            : "CAST('' AS nvarchar(100))";
         return this.dataSource.query(`
       SELECT
         c.ContactID AS contactId,
@@ -297,12 +322,17 @@ let OrganizationChartService = OrganizationChartService_1 = class OrganizationCh
         COALESCE(ci.Email, '') AS email,
         COALESCE(ci.CellPhone, '') AS cellPhone,
         COALESCE(ci.WorkPhone, '') AS workPhone,
+        COALESCE(ci.WorkPhoneExtension, '') AS extension,
         ${jobTitleSelect} AS jobTitle,
         COALESCE(rolePick.roleName, '') AS roleName,
         departmentPick.departmentId,
-        COALESCE(departmentPick.departmentName, 'Unassigned') AS departmentName
+        COALESCE(departmentPick.departmentName, 'Unassigned') AS departmentName,
+        COALESCE(allDepts.allDepartmentNames, 'Unassigned') AS allDepartmentNames,
+        ${department2Select} AS department2,
+        ISNULL(TRY_CAST(ep.DepartmentRank AS int), 999) AS departmentRank
       FROM dbo.Contact c
       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+      LEFT JOIN dbo.EmployeeProfile ep ON ep.ContactID = c.ContactID
       OUTER APPLY (
         SELECT STUFF((
           SELECT DISTINCT ', ' + LTRIM(RTRIM(r.RoleName))
@@ -315,7 +345,18 @@ let OrganizationChartService = OrganizationChartService_1 = class OrganizationCh
         ).value('.', 'nvarchar(max)'), 1, 2, '') AS roleName
       ) rolePick
       OUTER APPLY (
-        SELECT TOP 1
+        SELECT STUFF((
+          SELECT DISTINCT ', ' + LTRIM(RTRIM(d2.DepartmentName))
+          FROM dbo.ContactAssignment da2
+          INNER JOIN dbo.Department d2 ON d2.DepartmentID = da2.DepartmentID
+          WHERE da2.ContactID = c.ContactID
+            AND da2.CompanyID = @0
+            AND NULLIF(LTRIM(RTRIM(d2.DepartmentName)), '') IS NOT NULL
+          FOR XML PATH(''), TYPE
+        ).value('.', 'nvarchar(max)'), 1, 2, '') AS allDepartmentNames
+      ) allDepts
+      CROSS APPLY (
+        SELECT
           d.DepartmentID AS departmentId,
           NULLIF(LTRIM(RTRIM(d.DepartmentName)), '') AS departmentName
         FROM dbo.ContactAssignment departmentAssignment
@@ -323,14 +364,6 @@ let OrganizationChartService = OrganizationChartService_1 = class OrganizationCh
           ON d.DepartmentID = departmentAssignment.DepartmentID
         WHERE departmentAssignment.ContactID = c.ContactID
           AND departmentAssignment.CompanyID = @0
-        ORDER BY
-          CASE
-            WHEN d.DepartmentName IS NULL
-              OR LTRIM(RTRIM(d.DepartmentName)) = ''
-              OR LOWER(LTRIM(RTRIM(d.DepartmentName))) = 'unknown'
-            THEN 1 ELSE 0
-          END,
-          departmentAssignment.ContactAssignmentID
       ) departmentPick
       WHERE EXISTS (
         SELECT 1
@@ -347,6 +380,7 @@ let OrganizationChartService = OrganizationChartService_1 = class OrganizationCh
     }
     buildDepartmentNodes(company, rows) {
         const groups = new Map();
+        const seenPerDepartment = new Map();
         for (const row of rows) {
             const contactId = readNumber(row, 'contactId', 'ContactID');
             if (!contactId)
@@ -356,6 +390,14 @@ let OrganizationChartService = OrganizationChartService_1 = class OrganizationCh
             const departmentId = rawDepartmentId && departmentName !== 'Unassigned'
                 ? rawDepartmentId
                 : UNASSIGNED_DEPARTMENT_NODE_ID;
+            let seen = seenPerDepartment.get(departmentId);
+            if (!seen) {
+                seen = new Set();
+                seenPerDepartment.set(departmentId, seen);
+            }
+            if (seen.has(contactId))
+                continue;
+            seen.add(contactId);
             let node = groups.get(departmentId);
             if (!node) {
                 node = {
@@ -372,16 +414,19 @@ let OrganizationChartService = OrganizationChartService_1 = class OrganizationCh
             node.members.push({
                 memberId: contactId,
                 contactId,
-                sortOrder: roleRank(readString(row, 'jobTitle', 'JobTitle')),
+                sortOrder: row.departmentRank != null ? Number(row.departmentRank) : roleRank(readString(row, 'jobTitle', 'JobTitle')),
                 firstName,
                 lastName,
                 displayName: cleanText(`${firstName} ${lastName}`) || `Contact ${contactId}`,
                 email: readString(row, 'email', 'Email'),
                 cellPhone: readString(row, 'cellPhone', 'CellPhone'),
                 workPhone: readString(row, 'workPhone', 'WorkPhone'),
+                extension: readString(row, 'extension', 'Extension'),
                 jobTitle: readString(row, 'jobTitle', 'JobTitle'),
                 roleName: readString(row, 'roleName', 'RoleName'),
-                departmentName,
+                departmentName: readString(row, 'allDepartmentNames', 'AllDepartmentNames') || departmentName,
+                department2: readString(row, 'department2', 'Department2'),
+                departmentRank: row.departmentRank != null ? Number(row.departmentRank) : null,
             });
         }
         const departmentNodes = Array.from(groups.values()).sort((left, right) => departmentRank(left.label) - departmentRank(right.label) ||

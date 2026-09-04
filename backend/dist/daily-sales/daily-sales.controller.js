@@ -71,6 +71,13 @@ let DailySalesController = class DailySalesController {
     getByPerformanceSuggestions(asOfDate, q, performanceDate, startDate, endDate) {
         return this.dailySalesService.getByPerformanceSuggestions(asOfDate, q, performanceDate, startDate, endDate);
     }
+    getPercentageSold(asOfDate, performanceIdsRaw) {
+        const performanceIds = (performanceIdsRaw ?? '')
+            .split(',')
+            .map((s) => Number(s.trim()))
+            .filter((n) => Number.isInteger(n) && n > 0);
+        return this.dailySalesService.getPercentageSoldForPerformances(asOfDate, performanceIds);
+    }
     findAll(engagementId) {
         const id = engagementId ? Number(engagementId) : undefined;
         return this.dailySalesService.findAll(id);
@@ -131,6 +138,14 @@ __decorate([
     __metadata("design:paramtypes", [String, String, String, String, String]),
     __metadata("design:returntype", void 0)
 ], DailySalesController.prototype, "getByPerformanceSuggestions", null);
+__decorate([
+    (0, common_1.Get)('percentage-sold'),
+    __param(0, (0, common_1.Query)('asOfDate')),
+    __param(1, (0, common_1.Query)('performanceIds')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", void 0)
+], DailySalesController.prototype, "getPercentageSold", null);
 __decorate([
     (0, common_1.Get)(),
     __param(0, (0, common_1.Query)('engagementId')),

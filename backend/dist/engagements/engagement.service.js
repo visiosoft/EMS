@@ -31,6 +31,7 @@ const engagement_entity_1 = require("../entities/engagement.entity");
 const engagement_iae_contact_entity_1 = require("../entities/engagement-iae-contact.entity");
 const engagement_finance_entity_1 = require("../entities/engagement-finance.entity");
 const engagement_production_entity_1 = require("../entities/engagement-production.entity");
+const engagement_rehearsal_entity_1 = require("../entities/engagement-rehearsal.entity");
 const engagement_venue_entity_1 = require("../entities/engagement-venue.entity");
 const engagement_xref_entity_1 = require("../entities/engagement-xref.entity");
 const venue_service_provider_entity_1 = require("../entities/venue-service-provider.entity");
@@ -52,6 +53,9 @@ const engagement_travel_entity_1 = require("../entities/engagement-travel.entity
 const engagement_travel_car_service_entity_1 = require("../entities/engagement-travel-car-service.entity");
 const engagement_travel_hotel_entity_1 = require("../entities/engagement-travel-hotel.entity");
 const engagement_partner_entity_1 = require("../entities/engagement-partner.entity");
+const engagement_buyout_entity_1 = require("../entities/engagement-buyout.entity");
+const engagement_production_equipment_rental_entity_1 = require("../entities/engagement-production-equipment-rental.entity");
+const equipment_rental_type_entity_1 = require("../entities/equipment-rental-type.entity");
 const performance_contract_entity_1 = require("../entities/performance-contract.entity");
 const audit_request_context_service_1 = require("../audit/audit-request-context.service");
 const engagement_display_util_1 = require("./engagement-display.util");
@@ -69,6 +73,7 @@ let EngagementService = EngagementService_1 = class EngagementService {
     engagementFinancesRepo;
     engagementVenueRepo;
     engagementProductionRepo;
+    engagementRehearsalRepo;
     tourRepo;
     venueRepo;
     companyRepo;
@@ -89,7 +94,10 @@ let EngagementService = EngagementService_1 = class EngagementService {
     engagementTravelRepo;
     engagementTravelCarServiceRepo;
     engagementTravelHotelRepo;
+    engagementBuyoutRepo;
     engagementLinkRepo;
+    equipmentRentalRepo;
+    equipmentRentalTypeRepo;
     emsCreated;
     dataSource;
     auditContext;
@@ -119,11 +127,12 @@ let EngagementService = EngagementService_1 = class EngagementService {
     engagementFinanceBookingColsPresent = null;
     engagementFinanceContractLinkColsPresent = null;
     engagementFinanceEventBusinessColsPresent = null;
-    constructor(engagementRepo, engagementFinancesRepo, engagementVenueRepo, engagementProductionRepo, tourRepo, venueRepo, companyRepo, venueServiceProviderRepo, companyServiceRepo, serviceProvidedRepo, performanceRepo, performanceTicketingRepo, linkRepo, engagementIaeContactRepo, contactRepo, contactInfoRepo, roleRepo, departmentRepo, nonResidentWithholdingRepo, artistFinanceRepo, settlementFinanceRepo, engagementTravelRepo, engagementTravelCarServiceRepo, engagementTravelHotelRepo, engagementLinkRepo, emsCreated, dataSource, auditContext, documentLibrary) {
+    constructor(engagementRepo, engagementFinancesRepo, engagementVenueRepo, engagementProductionRepo, engagementRehearsalRepo, tourRepo, venueRepo, companyRepo, venueServiceProviderRepo, companyServiceRepo, serviceProvidedRepo, performanceRepo, performanceTicketingRepo, linkRepo, engagementIaeContactRepo, contactRepo, contactInfoRepo, roleRepo, departmentRepo, nonResidentWithholdingRepo, artistFinanceRepo, settlementFinanceRepo, engagementTravelRepo, engagementTravelCarServiceRepo, engagementTravelHotelRepo, engagementBuyoutRepo, engagementLinkRepo, equipmentRentalRepo, equipmentRentalTypeRepo, emsCreated, dataSource, auditContext, documentLibrary) {
         this.engagementRepo = engagementRepo;
         this.engagementFinancesRepo = engagementFinancesRepo;
         this.engagementVenueRepo = engagementVenueRepo;
         this.engagementProductionRepo = engagementProductionRepo;
+        this.engagementRehearsalRepo = engagementRehearsalRepo;
         this.tourRepo = tourRepo;
         this.venueRepo = venueRepo;
         this.companyRepo = companyRepo;
@@ -144,7 +153,10 @@ let EngagementService = EngagementService_1 = class EngagementService {
         this.engagementTravelRepo = engagementTravelRepo;
         this.engagementTravelCarServiceRepo = engagementTravelCarServiceRepo;
         this.engagementTravelHotelRepo = engagementTravelHotelRepo;
+        this.engagementBuyoutRepo = engagementBuyoutRepo;
         this.engagementLinkRepo = engagementLinkRepo;
+        this.equipmentRentalRepo = equipmentRentalRepo;
+        this.equipmentRentalTypeRepo = equipmentRentalTypeRepo;
         this.emsCreated = emsCreated;
         this.dataSource = dataSource;
         this.auditContext = auditContext;
@@ -186,6 +198,15 @@ let EngagementService = EngagementService_1 = class EngagementService {
         throw new common_1.BadRequestException({
             message: 'Invalid performance time format. Expected HH:mm or HH:mm:ss.',
         });
+    }
+    timeToString(val) {
+        if (val instanceof Date) {
+            const h = String(val.getUTCHours()).padStart(2, '0');
+            const m = String(val.getUTCMinutes()).padStart(2, '0');
+            const s = String(val.getUTCSeconds()).padStart(2, '0');
+            return `${h}:${m}:${s}`;
+        }
+        return String(val ?? '');
     }
     async assertPerformanceSlotAvailable(engagementId, performanceDate, performanceTime, excludePerformanceId) {
         const qb = this.performanceRepo
@@ -579,6 +600,12 @@ let EngagementService = EngagementService_1 = class EngagementService {
             return '3rd Party Renting Venue';
         if (t === 'silent copro with venue')
             return 'Silent CoPro with Venue';
+        if (t === 'copro with 3rd party')
+            return 'CoPro with 3rd Party';
+        if (t === 'copro with 3rd party, 3rd party renting venue')
+            return 'CoPro with 3rd Party, 3rd Party Renting Venue';
+        if (t === 'silent copro with 3rd party, 3rd party renting venue')
+            return 'Silent CoPro with 3rd Party, 3rd Party Renting Venue';
         return null;
     }
     normalizeThirdPartyPartnerDealStructure(value) {
@@ -1732,32 +1759,47 @@ let EngagementService = EngagementService_1 = class EngagementService {
         }
     }
     async mergeEngagementProductionTimesFromDb(engagementId, base) {
-        if (!(await this.engagementProductionHasTimeColumns()))
+        const eid = Math.floor(Number(engagementId));
+        if (!Number.isFinite(eid) || eid < 1)
             return base;
-        try {
-            const eid = Math.floor(Number(engagementId));
-            if (!Number.isFinite(eid) || eid < 1)
-                return base;
-            const r = await this.dataSource.query(`
+        let result = base;
+        if (await this.engagementProductionHasTimeColumns()) {
+            try {
+                const r = (await this.dataSource.query(`
         SELECT TOP 1
           CONVERT(varchar(8), ep.RehearsalTime, 108) AS rehearsalTime,
           CONVERT(varchar(8), ep.LoadInTime, 108) AS loadInTime
         FROM dbo.EngagementProduction ep
         WHERE ep.EngagementID = ${eid}
         ORDER BY ep.ProductionID DESC
-      `);
-            const row0 = r?.[0];
-            if (!row0)
-                return base;
-            return {
-                ...base,
-                rehearsalTime: this.parseOpeningTimeOnly(pickRaw(row0, 'rehearsalTime')),
-                loadInTime: this.parseOpeningTimeOnly(pickRaw(row0, 'loadInTime')),
-            };
+      `));
+                const row0 = r?.[0];
+                if (row0) {
+                    result = {
+                        ...result,
+                        rehearsalTime: this.parseOpeningTimeOnly(pickRaw(row0, 'rehearsalTime')),
+                        loadInTime: this.parseOpeningTimeOnly(pickRaw(row0, 'loadInTime')),
+                    };
+                }
+            }
+            catch {
+            }
+        }
+        try {
+            const rr = (await this.dataSource.query(`SELECT TOP 1 CONVERT(varchar(8), er.RehearsalTime, 108) AS rehearsalTime
+         FROM dbo.EngagementRehearsal er
+         WHERE er.EngagementID = ${eid}
+         ORDER BY er.RehearsalDate ASC, er.RehearsalID ASC`));
+            if (rr?.[0]) {
+                result = {
+                    ...result,
+                    rehearsalTime: this.parseOpeningTimeOnly(pickRaw(rr[0], 'rehearsalTime')),
+                };
+            }
         }
         catch {
-            return base;
         }
+        return result;
     }
     async tryPersistEngagementProductionTimes(productionId, dto) {
         const pid = productionId == null ? NaN : Math.floor(Number(productionId));
@@ -1858,6 +1900,7 @@ let EngagementService = EngagementService_1 = class EngagementService {
         let rows = [];
         const extraCols = `
             ,w.WithholdingArea AS withholdingArea
+            ,w.AreaCategory AS areaCategory
             ,w.WithholdingAgencyName AS withholdingAgencyName
             ,w.WithholdingPayee AS withholdingPayee
             ,w.PaymentMethod AS paymentMethod
@@ -1903,6 +1946,18 @@ let EngagementService = EngagementService_1 = class EngagementService {
           ORDER BY w.WithholdingID ASC
         `);
         }
+        const toDateOnly = (value) => {
+            if (value == null || value === '')
+                return null;
+            if (value instanceof Date && !Number.isNaN(value.getTime())) {
+                const year = value.getFullYear();
+                const month = String(value.getMonth() + 1).padStart(2, '0');
+                const day = String(value.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            }
+            const match = String(value).match(/^\d{4}-\d{2}-\d{2}/);
+            return match?.[0] ?? null;
+        };
         return rows
             .map((row) => {
             const withholdingId = Number(row.withholdingId ?? 0);
@@ -1917,6 +1972,7 @@ let EngagementService = EngagementService_1 = class EngagementService {
                 artistWaiverInstructionsId: row.artistWaiverInstructionsId == null ? null : Number(row.artistWaiverInstructionsId),
                 iaeWaiverInstructionsId: row.iaeWaiverInstructionsId == null ? null : Number(row.iaeWaiverInstructionsId),
                 withholdingArea: row.withholdingArea == null ? null : String(row.withholdingArea),
+                areaCategory: row.areaCategory == null ? null : String(row.areaCategory),
                 withholdingAgencyName: row.withholdingAgencyName == null ? null : String(row.withholdingAgencyName),
                 withholdingPayee: row.withholdingPayee == null ? null : String(row.withholdingPayee),
                 paymentMethod: row.paymentMethod == null ? null : String(row.paymentMethod),
@@ -1926,7 +1982,7 @@ let EngagementService = EngagementService_1 = class EngagementService {
                 canApplyForWaiver: row.canApplyForWaiver == null ? null : Boolean(row.canApplyForWaiver),
                 iaeWaiverInstructionsText: row.iaeWaiverInstructionsText == null ? null : String(row.iaeWaiverInstructionsText),
                 completedWaiverUrl: row.completedWaiverUrl == null ? null : String(row.completedWaiverUrl),
-                iaeWaiverSubmissionDate: row.iaeWaiverSubmissionDate == null ? null : String(row.iaeWaiverSubmissionDate),
+                iaeWaiverSubmissionDate: toDateOnly(row.iaeWaiverSubmissionDate),
                 iaeWaiverAppNumber: row.iaeWaiverAppNumber == null ? null : String(row.iaeWaiverAppNumber),
                 iaeWaiverUrl: row.iaeWaiverUrl == null ? null : String(row.iaeWaiverUrl),
                 tourWaiverUrl: row.tourWaiverUrl == null ? null : String(row.tourWaiverUrl),
@@ -1951,8 +2007,11 @@ let EngagementService = EngagementService_1 = class EngagementService {
         strField('WithholdingArea', dto.withholdingArea, 100);
         numField('WithholdingTaxRate', dto.withholdingTaxRate);
         strField('WithholdingAgencyName', dto.withholdingAgencyName, 200);
+        strField('CompletedWaiverURL', dto.completedWaiverUrl, 2048);
         strField('IAEWaiverSubmissionDate', dto.iaeWaiverSubmissionDate, 10);
         strField('IAEWaiverAppNumber', dto.iaeWaiverAppNumber, 100);
+        strField('TourWaiverURL', dto.tourWaiverUrl, 2048);
+        strField('ExceptionsNotes', dto.exceptionsNotes, 4000);
         if (sets.length === 0)
             return;
         await this.dataSource.query(`UPDATE dbo.NonResidentWithholding SET ${sets.join(', ')} WHERE [WithholdingID] = ${id}`);
@@ -2048,15 +2107,24 @@ let EngagementService = EngagementService_1 = class EngagementService {
         const existing = existingLinkId != null && existingLinkId > 0
             ? await this.linkRepo.findOne({ where: { linkId: existingLinkId } })
             : null;
-        const link = existing ??
-            this.linkRepo.create({
-                linkType: 'URL',
-                linkName: label,
-            });
-        link.linkType = 'URL';
-        link.linkUrl = url;
-        link.linkPath = url.slice(0, 1024);
-        link.linkName = (link.linkName?.trim() || label).slice(0, 255);
+        if (existing) {
+            existing.linkType = 'URL';
+            existing.linkUrl = url;
+            existing.linkPath = url.slice(0, 1024);
+            existing.linkName = (existing.linkName?.trim() || label).slice(0, 255);
+            const saved = await this.linkRepo.save(existing);
+            return saved.linkId;
+        }
+        const byUrl = await this.linkRepo.findOne({ where: { linkUrl: url } });
+        if (byUrl) {
+            return byUrl.linkId;
+        }
+        const link = this.linkRepo.create({
+            linkType: 'URL',
+            linkName: label,
+            linkUrl: url,
+            linkPath: url.slice(0, 1024),
+        });
         const saved = await this.linkRepo.save(link);
         return saved.linkId;
     }
@@ -2250,6 +2318,7 @@ let EngagementService = EngagementService_1 = class EngagementService {
                 subscriptionSalesRevenueTotal: null,
                 seasonTicketSalesByIae: null,
                 seasonTicketFundsTransferred: null,
+                totalRevenue: null,
                 netBoxOfficeFundsDepositedAccount: null,
                 hstCollectedFromTicketSales: null,
                 hstPaidOnTourPayments: null,
@@ -2262,6 +2331,8 @@ let EngagementService = EngagementService_1 = class EngagementService {
                 finalRoyaltyAmount: null,
                 finalOverageAmount: null,
                 finalBuyoutAmount: null,
+                finalOtherAmount: null,
+                finalConcessionsAmount: null,
                 finalDirectCompanyCharges: null,
                 finalReimbursables: null,
             };
@@ -2272,6 +2343,7 @@ let EngagementService = EngagementService_1 = class EngagementService {
             subscriptionSalesRevenueTotal: this.mapFinanceNumber(settlementRow.subscriptionSalesRevenueTotal),
             seasonTicketSalesByIae: this.mapFinanceNumber(settlementRow.seasonTicketSalesByIae),
             seasonTicketFundsTransferred: this.mapFinanceNumber(settlementRow.seasonTicketFundsTransferred),
+            totalRevenue: this.mapFinanceNumber(settlementRow.totalRevenue),
             netBoxOfficeFundsDepositedAccount: settlementRow.netBoxOfficeFundsDepositedAccount ?? null,
             hstCollectedFromTicketSales: this.mapFinanceNumber(settlementRow.hstCollectedFromTicketSales),
             hstPaidOnTourPayments: this.mapFinanceNumber(settlementRow.hstPaidOnTourPayments),
@@ -2284,6 +2356,8 @@ let EngagementService = EngagementService_1 = class EngagementService {
             finalRoyaltyAmount: this.mapFinanceNumber(settlementRow.finalRoyaltyAmount),
             finalOverageAmount: this.mapFinanceNumber(settlementRow.finalOverageAmount),
             finalBuyoutAmount: this.mapFinanceNumber(settlementRow.finalBuyoutAmount),
+            finalOtherAmount: this.mapFinanceNumber(settlementRow.finalOtherAmount),
+            finalConcessionsAmount: this.mapFinanceNumber(settlementRow.finalConcessionsAmount),
             finalDirectCompanyCharges: this.mapFinanceNumber(settlementRow.directCompanyCharges),
             finalReimbursables: this.mapFinanceNumber(settlementRow.reimbursables),
         };
@@ -2704,10 +2778,20 @@ let EngagementService = EngagementService_1 = class EngagementService {
     }
     engagementRehearsalDateSubquery() {
         return `(
-          SELECT TOP 1 CONVERT(varchar(10), ep.RehearsalDate, 23)
-          FROM dbo.EngagementProduction ep
-          WHERE ep.EngagementID = e.EngagementID
-          ORDER BY ep.ProductionID DESC
+          COALESCE(
+            (
+              SELECT TOP 1 CONVERT(varchar(10), er.RehearsalDate, 23)
+              FROM dbo.EngagementRehearsal er
+              WHERE er.EngagementID = e.EngagementID
+              ORDER BY er.RehearsalDate ASC, er.RehearsalID ASC
+            ),
+            (
+              SELECT TOP 1 CONVERT(varchar(10), ep.RehearsalDate, 23)
+              FROM dbo.EngagementProduction ep
+              WHERE ep.EngagementID = e.EngagementID
+              ORDER BY ep.ProductionID DESC
+            )
+          )
         )`;
     }
     engagementLoadInDateSubquery() {
@@ -2762,6 +2846,12 @@ let EngagementService = EngagementService_1 = class EngagementService {
                 dma,
             });
         }
+        const city = (f.city ?? '').trim();
+        if (city) {
+            qb.andWhere("LOWER(LTRIM(RTRIM(ISNULL(addr.city, '')))) = LOWER(:city)", {
+                city,
+            });
+        }
         const vl = (f.venueLabel ?? '').trim();
         if (vl) {
             qb.andWhere(`(LOWER(LTRIM(RTRIM(ISNULL(vc.companyName, '')))) = LOWER(:vl) OR LOWER(LTRIM(RTRIM(ISNULL(v.venueName, '')))) = LOWER(:vl))`, { vl });
@@ -2799,6 +2889,9 @@ let EngagementService = EngagementService_1 = class EngagementService {
         }
         else if (sortBy === 'market') {
             qb.orderBy('dma.marketName', sortDir).addOrderBy('e.engagementId', 'DESC');
+        }
+        else if (sortBy === 'city') {
+            qb.orderBy('addr.city', sortDir).addOrderBy('e.engagementId', 'DESC');
         }
         else if (sortBy === 'date') {
             qb.orderBy('openingPerformanceSortNull', 'ASC')
@@ -2995,6 +3088,17 @@ let EngagementService = EngagementService_1 = class EngagementService {
             .distinct(true)
             .orderBy('dma.marketName', 'ASC')
             .getRawMany()).map((r) => String(r.name ?? ''));
+        const cityNames = (await this.engagementRepo
+            .createQueryBuilder('e')
+            .innerJoin(tour_entity_1.Tour, 't', 't.tourId = e.tourId')
+            .leftJoin(engagement_venue_entity_1.EngagementVenue, 'ev', 'ev.engagementId = e.engagementId AND ev.isPrimary = :prim', { prim: true })
+            .leftJoin(company_entity_1.Company, 'vc', 'vc.companyId = ev.venueCompanyId')
+            .leftJoin(address_entity_1.Address, 'addr', 'addr.addressId = vc.physicalAddressId')
+            .select('addr.city', 'name')
+            .where('addr.city IS NOT NULL')
+            .distinct(true)
+            .orderBy('addr.city', 'ASC')
+            .getRawMany()).map((r) => String(r.name ?? ''));
         const venueRows = await this.engagementRepo
             .createQueryBuilder('e')
             .innerJoin(tour_entity_1.Tour, 't', 't.tourId = e.tourId')
@@ -3010,7 +3114,7 @@ let EngagementService = EngagementService_1 = class EngagementService {
                 venueSet.add(label);
         }
         const venueLabels = [...venueSet].sort((a, b) => a.localeCompare(b));
-        return { attractionNames, dmaMarketNames, venueLabels };
+        return { attractionNames, dmaMarketNames, cityNames, venueLabels };
     }
     async getOne(id) {
         const raw = await this.buildEngagementQuery(id).getRawOne();
@@ -3059,6 +3163,21 @@ let EngagementService = EngagementService_1 = class EngagementService {
         }
         const base = this.toFinanceResponse(engagementId, row, engagement, artistRow, settlementRow, payableEntity);
         base.artistTourOfferLink = artistTourOfferLinkUrl;
+        try {
+            const tourData = await this.dataSource.query(`SELECT c.CustomerName AS customerName, j.JobName AS jobName
+         FROM dbo.Tour t
+         LEFT JOIN dbo.Customer c ON c.CustomerID = t.CustomerID
+         LEFT JOIN dbo.Job j ON j.JobID = t.JobID
+         WHERE t.TourID = @0`, [engagement.tourId]);
+            const td = tourData?.[0];
+            if (td) {
+                const cName = td.customerName;
+                base.financeCustomer = cName == null || cName === '' ? null : String(cName).trim() || null;
+                const jName = td.jobName;
+                base.financeJob = jName == null || jName === '' ? null : String(jName).trim() || null;
+            }
+        }
+        catch { }
         if (!row?.financeId)
             return this.mergeAnnouncementDateFromProduction(engagementId, base);
         const withMarketingBudget = await this.mergeFinanceMarketingBudgetFromDb(row.financeId, base);
@@ -3129,6 +3248,7 @@ let EngagementService = EngagementService_1 = class EngagementService {
             label: `Withholding #${r.withholdingId} (rate ${r.withholdingTaxRate})`,
             withholdingTaxRate: String(r.withholdingTaxRate ?? ''),
             withholdingArea: r.withholdingArea ?? (r.dmaid != null ? (dmaAreaById.get(r.dmaid) ?? null) : null),
+            areaCategory: r.areaCategory ?? null,
             dmaid: r.dmaid ?? null,
             taxAgencyId: r.taxAgencyId ?? null,
             withholdingAgencyName: r.withholdingAgencyName ?? null,
@@ -3297,30 +3417,50 @@ let EngagementService = EngagementService_1 = class EngagementService {
                 venueWithholdingMissing = true;
             }
             const venueCompany = venueCompanyId != null
-                ? await em.findOne(company_entity_1.Company, { where: { companyId: venueCompanyId } })
+                ? await em.findOne(company_entity_1.Company, {
+                    where: { companyId: venueCompanyId },
+                    relations: ['physicalAddress'],
+                })
                 : null;
-            const hasDmaId = await this.nonResidentWithholdingHasDmaId();
+            const venueAddress = venueCompany?.physicalAddress ?? null;
+            const venueCity = venueAddress?.city?.trim() || null;
+            const venueState = venueAddress?.stateProvince?.trim() || null;
+            const venueCountry = venueAddress?.country?.trim() || null;
+            const allNrwRows = await this.listNonResidentWithholdingRowsSafe(em);
+            const matchByArea = (area) => {
+                if (!area)
+                    return undefined;
+                const lower = area.toLowerCase();
+                return allNrwRows.find((r) => r.withholdingArea != null && r.withholdingArea.toLowerCase() === lower);
+            };
+            const geoMatch = matchByArea(venueCity) ?? matchByArea(venueState) ?? matchByArea(venueCountry);
             let savedWithholdingId = null;
-            if (hasDmaId) {
-                const withholding = em.create(non_resident_withholding_entity_1.NonResidentWithholding, {
-                    withholdingTaxRate: '0',
-                    dmaid: venueCompany?.dmaid ?? null,
-                    taxAgencyId: null,
-                    withholdingLinkId: null,
-                    artistWaiverInstructionsId: null,
-                    iaeWaiverInstructionsId: null,
-                });
-                const savedWithholding = await em.save(non_resident_withholding_entity_1.NonResidentWithholding, withholding);
-                savedWithholdingId = savedWithholding.withholdingId;
+            if (geoMatch) {
+                savedWithholdingId = geoMatch.withholdingId;
             }
             else {
-                const inserted = await em.query(`
-            INSERT INTO [dbo].[NonResidentWithholding]
-              ([WithholdingTaxRate], [TaxAgencyID], [WithholdingLinkID], [ArtistWaiverInstructionsID], [IAEWaiverInstructionsID])
-            VALUES (@0, @1, @2, @3, @4);
-            SELECT CAST(SCOPE_IDENTITY() AS int) AS withholdingId;
-          `, ['0', null, null, null, null]);
-                savedWithholdingId = Number(inserted?.[0]?.withholdingId ?? NaN);
+                const hasDmaId = await this.nonResidentWithholdingHasDmaId();
+                if (hasDmaId) {
+                    const withholding = em.create(non_resident_withholding_entity_1.NonResidentWithholding, {
+                        withholdingTaxRate: '0',
+                        dmaid: venueCompany?.dmaid ?? null,
+                        taxAgencyId: null,
+                        withholdingLinkId: null,
+                        artistWaiverInstructionsId: null,
+                        iaeWaiverInstructionsId: null,
+                    });
+                    const savedWithholding = await em.save(non_resident_withholding_entity_1.NonResidentWithholding, withholding);
+                    savedWithholdingId = savedWithholding.withholdingId;
+                }
+                else {
+                    const inserted = await em.query(`
+              INSERT INTO [dbo].[NonResidentWithholding]
+                ([WithholdingTaxRate], [TaxAgencyID], [WithholdingLinkID], [ArtistWaiverInstructionsID], [IAEWaiverInstructionsID])
+              VALUES (@0, @1, @2, @3, @4);
+              SELECT CAST(SCOPE_IDENTITY() AS int) AS withholdingId;
+            `, ['0', null, null, null, null]);
+                    savedWithholdingId = Number(inserted?.[0]?.withholdingId ?? NaN);
+                }
             }
             if (!Number.isInteger(savedWithholdingId) || savedWithholdingId < 1) {
                 throw new common_1.BadRequestException({
@@ -3582,6 +3722,7 @@ let EngagementService = EngagementService_1 = class EngagementService {
             dto.subscriptionSalesRevenueTotal !== undefined ||
             dto.seasonTicketSalesByIae !== undefined ||
             dto.seasonTicketFundsTransferred !== undefined ||
+            dto.totalRevenue !== undefined ||
             dto.netBoxOfficeFundsDepositedAccount !== undefined ||
             dto.hstCollectedFromTicketSales !== undefined ||
             dto.hstPaidOnTourPayments !== undefined ||
@@ -3594,6 +3735,8 @@ let EngagementService = EngagementService_1 = class EngagementService {
             dto.finalRoyaltyAmount !== undefined ||
             dto.finalOverageAmount !== undefined ||
             dto.finalBuyoutAmount !== undefined ||
+            dto.finalOtherAmount !== undefined ||
+            dto.finalConcessionsAmount !== undefined ||
             dto.finalDirectCompanyCharges !== undefined ||
             dto.finalReimbursables !== undefined;
         if (touchesSettlementMaster) {
@@ -3627,6 +3770,11 @@ let EngagementService = EngagementService_1 = class EngagementService {
                         : dto.seasonTicketFundsTransferred == null
                             ? null
                             : dto.seasonTicketFundsTransferred,
+                    totalRevenue: dto.totalRevenue === undefined
+                        ? null
+                        : dto.totalRevenue == null
+                            ? null
+                            : dto.totalRevenue,
                     netBoxOfficeFundsDepositedAccount: dto.netBoxOfficeFundsDepositedAccount === undefined
                         ? null
                         : dto.netBoxOfficeFundsDepositedAccount == null ||
@@ -3678,6 +3826,8 @@ let EngagementService = EngagementService_1 = class EngagementService {
                     finalRoyaltyAmount: dto.finalRoyaltyAmount === undefined ? null : dto.finalRoyaltyAmount ?? null,
                     finalOverageAmount: dto.finalOverageAmount === undefined ? null : dto.finalOverageAmount ?? null,
                     finalBuyoutAmount: dto.finalBuyoutAmount === undefined ? null : dto.finalBuyoutAmount ?? null,
+                    finalOtherAmount: dto.finalOtherAmount === undefined ? null : dto.finalOtherAmount ?? null,
+                    finalConcessionsAmount: dto.finalConcessionsAmount === undefined ? null : dto.finalConcessionsAmount ?? null,
                     directCompanyCharges: dto.finalDirectCompanyCharges === undefined ? null : dto.finalDirectCompanyCharges ?? null,
                     reimbursables: dto.finalReimbursables === undefined ? null : dto.finalReimbursables ?? null,
                 });
@@ -3725,6 +3875,9 @@ let EngagementService = EngagementService_1 = class EngagementService {
                         dto.seasonTicketFundsTransferred == null
                             ? null
                             : dto.seasonTicketFundsTransferred;
+                }
+                if (dto.totalRevenue !== undefined) {
+                    sf.totalRevenue = dto.totalRevenue == null ? null : dto.totalRevenue;
                 }
                 if (dto.netBoxOfficeFundsDepositedAccount !== undefined) {
                     const t = dto.netBoxOfficeFundsDepositedAccount;
@@ -3787,6 +3940,12 @@ let EngagementService = EngagementService_1 = class EngagementService {
                 }
                 if (dto.finalBuyoutAmount !== undefined) {
                     sf.finalBuyoutAmount = dto.finalBuyoutAmount ?? null;
+                }
+                if (dto.finalOtherAmount !== undefined) {
+                    sf.finalOtherAmount = dto.finalOtherAmount ?? null;
+                }
+                if (dto.finalConcessionsAmount !== undefined) {
+                    sf.finalConcessionsAmount = dto.finalConcessionsAmount ?? null;
                 }
                 if (dto.finalDirectCompanyCharges !== undefined) {
                     sf.directCompanyCharges = dto.finalDirectCompanyCharges ?? null;
@@ -4030,11 +4189,10 @@ let EngagementService = EngagementService_1 = class EngagementService {
             await this.assertVenueCompany(dto.primaryVenueCompanyId);
             await this.dataSource.transaction(async (manager) => {
                 const current = await manager.findOne(engagement_venue_entity_1.EngagementVenue, {
-                    where: { engagementId: id, isPrimary: true },
+                    where: { engagementId: id },
                 });
                 if (current && current.venueCompanyId !== dto.primaryVenueCompanyId) {
-                    current.isPrimary = false;
-                    await manager.save(engagement_venue_entity_1.EngagementVenue, current);
+                    await manager.remove(engagement_venue_entity_1.EngagementVenue, current);
                 }
                 const targetRow = await manager.findOne(engagement_venue_entity_1.EngagementVenue, {
                     where: {
@@ -4626,7 +4784,7 @@ let EngagementService = EngagementService_1 = class EngagementService {
         const rows = await this.dataSource.query(`SELECT
         p.[PerformanceID] AS pid,
         CONVERT(varchar(10), p.[PerformanceDate], 120) AS pdate,
-        p.[PerformanceTime] AS ptime,
+        CONVERT(varchar(8), p.[PerformanceTime], 108) AS ptime,
         p.[TicketingStatus] AS pstatus
         ${selectAdv}
        FROM dbo.Performance p
@@ -5724,7 +5882,7 @@ let EngagementService = EngagementService_1 = class EngagementService {
             engagementId: r.engagementId,
             performanceStatus: r.performanceStatus,
             performanceDate: r.performanceDate,
-            performanceTime: r.performanceTime,
+            performanceTime: this.timeToString(r.performanceTime),
         }));
     }
     async assertPerformanceForEngagement(engagementId, performanceId) {
@@ -5897,6 +6055,7 @@ let EngagementService = EngagementService_1 = class EngagementService {
     }
     async upsertPerformanceTicketing(engagementId, performanceId, dto) {
         await this.assertPerformanceForEngagement(engagementId, performanceId);
+        await this.assertSellableCapacityWithinVenueCapacity(engagementId, dto);
         if (dto.ticketingLinkUrl === undefined &&
             dto.ticketingLinkId !== undefined &&
             dto.ticketingLinkId != null) {
@@ -5971,6 +6130,9 @@ let EngagementService = EngagementService_1 = class EngagementService {
             this.tryPersistSalesTaxToVenue(engagementId, dto),
             this.tryPersistEngagementScaling(engagementId, dto),
         ]);
+        if (dto.sellableCapacity !== undefined || dto.grossPotentialRevenue !== undefined) {
+            await this.recomputeEngagementCapacitySums(engagementId);
+        }
     }
     async tryPersistEngagementScaling(engagementId, dto) {
         if (dto.engagementScaling === undefined)
@@ -5979,6 +6141,58 @@ let EngagementService = EngagementService_1 = class EngagementService {
             ? null
             : String(dto.engagementScaling).trim().slice(0, 50);
         await this.engagementRepo.update({ engagementId }, { engagementScaling: val });
+    }
+    async recomputeEngagementCapacitySums(engagementId) {
+        if (!(await this.performanceTicketingHasAdvancedColumns()))
+            return;
+        try {
+            const eid = Math.floor(Number(engagementId));
+            if (!Number.isFinite(eid) || eid < 1)
+                return;
+            const r = await this.dataSource.query(`SELECT
+           SUM(pt.[SellableCapacity]) AS totalSC,
+           SUM(pt.[GrossPotentialRevenue]) AS totalGPR
+         FROM dbo.PerformanceTicketing pt
+         INNER JOIN dbo.Performance p ON p.[PerformanceID] = pt.[PerformanceID]
+         WHERE p.[EngagementID] = ${eid}`);
+            const row0 = r?.[0];
+            const totalSC = row0?.totalSC != null && row0.totalSC !== '' && Number.isFinite(Number(row0.totalSC))
+                ? Math.trunc(Number(row0.totalSC))
+                : null;
+            const totalGPR = row0?.totalGPR != null && row0.totalGPR !== '' && Number.isFinite(Number(row0.totalGPR))
+                ? Number(Number(row0.totalGPR).toFixed(2))
+                : null;
+            await this.engagementRepo.update({ engagementId: eid }, { sellableCapacity: totalSC, grossPotential: totalGPR });
+        }
+        catch {
+        }
+    }
+    async assertSellableCapacityWithinVenueCapacity(engagementId, dto) {
+        if (dto.sellableCapacity === undefined || dto.sellableCapacity == null)
+            return;
+        const requested = Math.trunc(Number(dto.sellableCapacity));
+        if (!Number.isFinite(requested))
+            return;
+        let capacity = null;
+        try {
+            const rows = (await this.dataSource.query(`SELECT TOP 1 v.[SeatingCapacity] AS cap
+         FROM dbo.EngagementVenue ev
+         INNER JOIN dbo.Venue v ON v.[CompanyID] = ev.[VenueCompanyID]
+         WHERE ev.[EngagementID] = ${Math.trunc(engagementId)}
+         ORDER BY ev.[IsPrimary] DESC`));
+            const raw = rows[0]?.cap;
+            capacity = raw == null ? null : Number(raw);
+        }
+        catch {
+            return;
+        }
+        if (capacity == null || !Number.isFinite(capacity) || capacity <= 0)
+            return;
+        if (requested > capacity) {
+            throw new common_1.BadRequestException({
+                message: `Sellable Capacity (${requested.toLocaleString()}) cannot exceed the Venue Capacity of ${capacity.toLocaleString()}.`,
+            });
+        }
     }
     async tryPersistSalesTaxToVenue(engagementId, dto) {
         if (dto.salesTaxType === undefined && dto.salesTaxAmountPercent === undefined)
@@ -6000,6 +6214,97 @@ let EngagementService = EngagementService_1 = class EngagementService {
          )`);
         }
         catch { }
+    }
+    toRehearsalDto(row) {
+        const rawDate = row.rehearsalDate;
+        const date = rawDate instanceof Date
+            ? rawDate.toISOString().slice(0, 10)
+            : String(rawDate ?? '').slice(0, 10);
+        return {
+            rehearsalId: row.rehearsalId,
+            rehearsalDate: date,
+            rehearsalTime: row.rehearsalTime == null ? null : this.timeToString(row.rehearsalTime).slice(0, 8),
+        };
+    }
+    normalizeRehearsalDate(date) {
+        const d = String(date ?? '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+            throw new common_1.BadRequestException({
+                message: 'Invalid rehearsal date. Expected format: YYYY-MM-DD.',
+            });
+        }
+        return d;
+    }
+    normalizeRehearsalTime(time) {
+        if (time == null || String(time).trim() === '')
+            return null;
+        return this.normalizeTime(String(time));
+    }
+    async listRehearsals(engagementId) {
+        await this.assertEngagementExists(engagementId);
+        const rows = await this.engagementRehearsalRepo.find({
+            where: { engagementId },
+            order: { rehearsalDate: 'ASC', rehearsalId: 'ASC' },
+        });
+        return rows.map((r) => this.toRehearsalDto(r));
+    }
+    async assertRehearsalSlotAvailable(engagementId, rehearsalDate, rehearsalTime, excludeRehearsalId) {
+        const qb = this.engagementRehearsalRepo
+            .createQueryBuilder('r')
+            .where('r.engagementId = :engagementId', { engagementId })
+            .andWhere('r.rehearsalDate = :rehearsalDate', { rehearsalDate });
+        if (rehearsalTime == null) {
+            qb.andWhere('r.rehearsalTime IS NULL');
+        }
+        else {
+            qb.andWhere('r.rehearsalTime = :rehearsalTime', { rehearsalTime });
+        }
+        if (excludeRehearsalId != null) {
+            qb.andWhere('r.rehearsalId <> :excludeRehearsalId', { excludeRehearsalId });
+        }
+        if (await qb.getOne()) {
+            throw new common_1.ConflictException({
+                message: 'A rehearsal already exists for this engagement at the exact same date and time.',
+            });
+        }
+    }
+    async createRehearsal(engagementId, dto) {
+        await this.assertEngagementExists(engagementId);
+        const date = this.normalizeRehearsalDate(dto.rehearsalDate);
+        const time = this.normalizeRehearsalTime(dto.rehearsalTime);
+        await this.assertRehearsalSlotAvailable(engagementId, date, time);
+        const saved = await this.engagementRehearsalRepo.save(this.engagementRehearsalRepo.create({
+            engagementId,
+            rehearsalDate: date,
+            rehearsalTime: time,
+        }));
+        return { rehearsalId: saved.rehearsalId };
+    }
+    async assertRehearsalForEngagement(engagementId, rehearsalId) {
+        const row = await this.engagementRehearsalRepo.findOne({
+            where: { rehearsalId, engagementId },
+        });
+        if (!row) {
+            throw new common_1.BadRequestException({
+                message: `Rehearsal #${rehearsalId} was not found on this engagement.`,
+            });
+        }
+        return row;
+    }
+    async updateRehearsal(engagementId, rehearsalId, dto) {
+        const row = await this.assertRehearsalForEngagement(engagementId, rehearsalId);
+        if (dto.rehearsalDate !== undefined) {
+            row.rehearsalDate = this.normalizeRehearsalDate(dto.rehearsalDate);
+        }
+        if (dto.rehearsalTime !== undefined) {
+            row.rehearsalTime = this.normalizeRehearsalTime(dto.rehearsalTime);
+        }
+        await this.assertRehearsalSlotAvailable(engagementId, row.rehearsalDate, row.rehearsalTime, rehearsalId);
+        await this.engagementRehearsalRepo.save(row);
+    }
+    async deleteRehearsal(engagementId, rehearsalId) {
+        await this.assertRehearsalForEngagement(engagementId, rehearsalId);
+        await this.engagementRehearsalRepo.delete({ rehearsalId, engagementId });
     }
     async createPerformance(engagementId, dto) {
         await this.assertEngagementExists(engagementId);
@@ -6072,6 +6377,7 @@ let EngagementService = EngagementService_1 = class EngagementService {
             await manager.delete(performance_entity_1.Performance, { performanceId, engagementId });
         });
         await this.enforceOpeningPerformancePublic(engagementId);
+        await this.recomputeEngagementCapacitySums(engagementId);
     }
     async listRetailPartners(engagementId) {
         await this.assertEngagementExists(engagementId);
@@ -6378,10 +6684,23 @@ let EngagementService = EngagementService_1 = class EngagementService {
         });
         if (travels.length === 0)
             return [];
+        const travelIds = travels.map((t) => t.engagementTravelId);
+        const [hotelDetails, carServiceDetails] = await Promise.all([
+            this.engagementTravelHotelRepo.find({
+                where: { engagementTravelId: (0, typeorm_2.In)(travelIds) },
+                select: ['engagementTravelId'],
+            }),
+            this.engagementTravelCarServiceRepo.find({
+                where: { engagementTravelId: (0, typeorm_2.In)(travelIds) },
+                select: ['engagementTravelId'],
+            }),
+        ]);
+        const hotelTravelIds = new Set(hotelDetails.map((h) => h.engagementTravelId));
+        const carServiceTravelIds = new Set(carServiceDetails.map((cs) => cs.engagementTravelId));
         const results = [];
         for (const t of travels) {
             const travelType = String(t.travelType ?? '').trim();
-            if (travelType === 'Hotel') {
+            if (travelType === 'Hotels' && hotelTravelIds.has(t.engagementTravelId)) {
                 const hotel = await this.engagementTravelHotelRepo.findOne({
                     where: { engagementTravelId: t.engagementTravelId },
                 });
@@ -6436,7 +6755,7 @@ let EngagementService = EngagementService_1 = class EngagementService {
                     carServices: [],
                 });
             }
-            else if (travelType === 'Car') {
+            else if (travelType === 'Ground Transportation' && carServiceTravelIds.has(t.engagementTravelId)) {
                 const carServices = await this.engagementTravelCarServiceRepo.find({
                     where: { engagementTravelId: t.engagementTravelId },
                     order: { carServiceTravelId: 'ASC' },
@@ -6453,14 +6772,34 @@ let EngagementService = EngagementService_1 = class EngagementService {
                    FROM dbo.Address WHERE [AddressID]=@0`, [cs.destinationAddressId])
                             : null,
                     ]);
+                    const origAddr = origRow?.[0];
+                    const destAddr = destRow?.[0];
+                    const strOrNull = (row, k) => {
+                        if (!row)
+                            return null;
+                        const v = row[k];
+                        return v == null || v === '' ? null : String(v).trim();
+                    };
                     csRows.push({
                         carServiceTravelId: cs.carServiceTravelId,
                         engagementTravelId: t.engagementTravelId,
                         bookedBy: t.bookedBy,
                         originAddressId: cs.originAddressId,
-                        originAddressLabel: this.buildAddressLabel(origRow?.[0]),
+                        originAddressLabel: this.buildAddressLabel(origAddr),
+                        originAddressLine1: strOrNull(origAddr, 'line1'),
+                        originAddressLine2: strOrNull(origAddr, 'line2'),
+                        originAddressCity: strOrNull(origAddr, 'city'),
+                        originAddressStateProvince: strOrNull(origAddr, 'state'),
+                        originAddressPostalCode: strOrNull(origAddr, 'postal'),
+                        originAddressCountry: strOrNull(origAddr, 'country'),
                         destinationAddressId: cs.destinationAddressId,
-                        destinationAddressLabel: this.buildAddressLabel(destRow?.[0]),
+                        destinationAddressLabel: this.buildAddressLabel(destAddr),
+                        destinationAddressLine1: strOrNull(destAddr, 'line1'),
+                        destinationAddressLine2: strOrNull(destAddr, 'line2'),
+                        destinationAddressCity: strOrNull(destAddr, 'city'),
+                        destinationAddressStateProvince: strOrNull(destAddr, 'state'),
+                        destinationAddressPostalCode: strOrNull(destAddr, 'postal'),
+                        destinationAddressCountry: strOrNull(destAddr, 'country'),
                         pickupDateTime: cs.pickupDateTime instanceof Date
                             ? cs.pickupDateTime.toISOString()
                             : cs.pickupDateTime,
@@ -6473,6 +6812,17 @@ let EngagementService = EngagementService_1 = class EngagementService {
                     carServices: csRows,
                 });
             }
+            else {
+                results.push({
+                    engagementTravelId: t.engagementTravelId,
+                    travelType,
+                    hotel: null,
+                    carServices: [],
+                    iaePays: t.iaePays ?? null,
+                    iaeArranges: t.iaeArranges ?? null,
+                    budgetAmount: t.budgetAmount != null ? Number(t.budgetAmount) : null,
+                });
+            }
         }
         return results;
     }
@@ -6481,7 +6831,7 @@ let EngagementService = EngagementService_1 = class EngagementService {
         return this.dataSource.transaction(async (manager) => {
             const travel = manager.create(engagement_travel_entity_1.EngagementTravel, {
                 engagementId,
-                travelType: 'Hotel',
+                travelType: 'Hotels',
                 bookedBy: dto.bookedBy ?? null,
             });
             const savedTravel = await manager.save(engagement_travel_entity_1.EngagementTravel, travel);
@@ -6508,14 +6858,13 @@ let EngagementService = EngagementService_1 = class EngagementService {
         });
         if (!travel)
             throw new common_1.NotFoundException({ message: 'Travel record not found for this engagement.' });
-        if (travel.travelType !== 'Hotel')
-            throw new common_1.BadRequestException({ message: 'Travel record is not a Hotel type.' });
-        if (dto.bookedBy !== undefined)
-            travel.bookedBy = dto.bookedBy ?? null;
-        await this.engagementTravelRepo.save(travel);
         const hotel = await this.engagementTravelHotelRepo.findOne({ where: { engagementTravelId } });
         if (!hotel)
             throw new common_1.NotFoundException({ message: 'Hotel detail record not found.' });
+        if (dto.bookedBy !== undefined) {
+            travel.bookedBy = dto.bookedBy ?? null;
+            await this.engagementTravelRepo.save(travel);
+        }
         if (dto.hotelCompanyId !== undefined)
             hotel.hotelCompanyId = dto.hotelCompanyId ?? null;
         if (dto.numberOfRooms !== undefined)
@@ -6535,33 +6884,15 @@ let EngagementService = EngagementService_1 = class EngagementService {
         return this.dataSource.transaction(async (manager) => {
             let originAddressId = dto.originAddressId ?? null;
             if (originAddressId == null && dto.originAddress) {
-                const addr = manager.create(address_entity_1.Address, {
-                    addressLine1: dto.originAddress.addressLine1,
-                    addressLine2: dto.originAddress.addressLine2 ?? null,
-                    city: dto.originAddress.city,
-                    stateProvince: dto.originAddress.stateProvince,
-                    postalCode: dto.originAddress.postalCode,
-                    country: dto.originAddress.country,
-                });
-                const saved = await manager.save(address_entity_1.Address, addr);
-                originAddressId = saved.addressId;
+                originAddressId = await this.resolveOrCreateAddress(manager, dto.originAddress);
             }
             let destinationAddressId = dto.destinationAddressId ?? null;
             if (destinationAddressId == null && dto.destinationAddress) {
-                const addr = manager.create(address_entity_1.Address, {
-                    addressLine1: dto.destinationAddress.addressLine1,
-                    addressLine2: dto.destinationAddress.addressLine2 ?? null,
-                    city: dto.destinationAddress.city,
-                    stateProvince: dto.destinationAddress.stateProvince,
-                    postalCode: dto.destinationAddress.postalCode,
-                    country: dto.destinationAddress.country,
-                });
-                const saved = await manager.save(address_entity_1.Address, addr);
-                destinationAddressId = saved.addressId;
+                destinationAddressId = await this.resolveOrCreateAddress(manager, dto.destinationAddress);
             }
             const travel = manager.create(engagement_travel_entity_1.EngagementTravel, {
                 engagementId,
-                travelType: 'Car',
+                travelType: 'Ground Transportation',
                 bookedBy: dto.bookedBy ?? null,
             });
             const savedTravel = await manager.save(engagement_travel_entity_1.EngagementTravel, travel);
@@ -6599,37 +6930,47 @@ let EngagementService = EngagementService_1 = class EngagementService {
                 cs.originAddressId = dto.originAddressId ?? null;
             }
             else if (dto.originAddress) {
-                const addr = manager.create(address_entity_1.Address, {
-                    addressLine1: dto.originAddress.addressLine1,
-                    addressLine2: dto.originAddress.addressLine2 ?? null,
-                    city: dto.originAddress.city,
-                    stateProvince: dto.originAddress.stateProvince,
-                    postalCode: dto.originAddress.postalCode,
-                    country: dto.originAddress.country,
-                });
-                const saved = await manager.save(address_entity_1.Address, addr);
-                cs.originAddressId = saved.addressId;
+                cs.originAddressId = await this.resolveOrCreateAddress(manager, dto.originAddress);
             }
             if (dto.destinationAddressId !== undefined) {
                 cs.destinationAddressId = dto.destinationAddressId ?? null;
             }
             else if (dto.destinationAddress) {
-                const addr = manager.create(address_entity_1.Address, {
-                    addressLine1: dto.destinationAddress.addressLine1,
-                    addressLine2: dto.destinationAddress.addressLine2 ?? null,
-                    city: dto.destinationAddress.city,
-                    stateProvince: dto.destinationAddress.stateProvince,
-                    postalCode: dto.destinationAddress.postalCode,
-                    country: dto.destinationAddress.country,
-                });
-                const saved = await manager.save(address_entity_1.Address, addr);
-                cs.destinationAddressId = saved.addressId;
+                cs.destinationAddressId = await this.resolveOrCreateAddress(manager, dto.destinationAddress);
             }
             if (dto.pickupDateTime !== undefined) {
                 cs.pickupDateTime = dto.pickupDateTime ? new Date(dto.pickupDateTime) : null;
             }
             await manager.save(engagement_travel_car_service_entity_1.EngagementTravelCarService, cs);
         });
+    }
+    async resolveOrCreateAddress(manager, input) {
+        const line1 = (input.addressLine1 ?? '').trim();
+        const city = (input.city ?? '').trim();
+        const state = (input.stateProvince ?? '').trim();
+        const postal = (input.postalCode ?? '').trim();
+        const country = (input.country ?? '').trim();
+        const existing = await manager.findOne(address_entity_1.Address, {
+            where: {
+                addressLine1: line1,
+                city,
+                stateProvince: state,
+                postalCode: postal,
+                country,
+            },
+        });
+        if (existing)
+            return existing.addressId;
+        const addr = manager.create(address_entity_1.Address, {
+            addressLine1: line1,
+            addressLine2: input.addressLine2 ?? null,
+            city,
+            stateProvince: state,
+            postalCode: postal,
+            country,
+        });
+        const saved = await manager.save(address_entity_1.Address, addr);
+        return saved.addressId;
     }
     async deleteEngagementTravel(engagementId, engagementTravelId) {
         await this.assertEngagementExists(engagementId);
@@ -6639,14 +6980,248 @@ let EngagementService = EngagementService_1 = class EngagementService {
         if (!travel)
             throw new common_1.NotFoundException({ message: 'Travel record not found for this engagement.' });
         await this.dataSource.transaction(async (manager) => {
-            if (travel.travelType === 'Hotel') {
-                await manager.delete(engagement_travel_hotel_entity_1.EngagementTravelHotel, { engagementTravelId });
-            }
-            else if (travel.travelType === 'Car') {
-                await manager.delete(engagement_travel_car_service_entity_1.EngagementTravelCarService, { engagementTravelId });
-            }
+            await manager.delete(engagement_travel_hotel_entity_1.EngagementTravelHotel, { engagementTravelId });
+            await manager.delete(engagement_travel_car_service_entity_1.EngagementTravelCarService, { engagementTravelId });
             await manager.delete(engagement_travel_entity_1.EngagementTravel, { engagementTravelId });
         });
+    }
+    async upsertTravelDrillBits(engagementId, travelTypes) {
+        await this.assertEngagementExists(engagementId);
+        const drillBitsTypes = ['Ground Transportation', 'Airfare', 'Hotels'];
+        const existing = await this.engagementTravelRepo.find({
+            where: { engagementId },
+        });
+        const travelIds = existing.map((t) => t.engagementTravelId);
+        let detailTravelIds = new Set();
+        if (travelIds.length > 0) {
+            const [hotelDetails, carServiceDetails] = await Promise.all([
+                this.engagementTravelHotelRepo.find({
+                    where: { engagementTravelId: (0, typeorm_2.In)(travelIds) },
+                    select: ['engagementTravelId'],
+                }),
+                this.engagementTravelCarServiceRepo.find({
+                    where: { engagementTravelId: (0, typeorm_2.In)(travelIds) },
+                    select: ['engagementTravelId'],
+                }),
+            ]);
+            detailTravelIds = new Set([
+                ...hotelDetails.map((h) => h.engagementTravelId),
+                ...carServiceDetails.map((cs) => cs.engagementTravelId),
+            ]);
+        }
+        const drillBitsExisting = existing.filter((t) => drillBitsTypes.includes(t.travelType) && !detailTravelIds.has(t.engagementTravelId));
+        const selectedTypes = travelTypes.map((t) => t.travelType);
+        for (const row of drillBitsExisting) {
+            if (!selectedTypes.includes(row.travelType)) {
+                await this.engagementTravelRepo.delete({ engagementTravelId: row.engagementTravelId });
+            }
+        }
+        for (const item of travelTypes) {
+            if (!drillBitsTypes.includes(item.travelType))
+                continue;
+            const existingRow = drillBitsExisting.find((r) => r.travelType === item.travelType);
+            const iaePays = item.iaePays ?? false;
+            const iaeArranges = item.iaeArranges ?? false;
+            if (existingRow) {
+                await this.engagementTravelRepo.update({ engagementTravelId: existingRow.engagementTravelId }, { iaePays, iaeArranges, budgetAmount: item.budgetAmount });
+            }
+            else {
+                const newRow = this.engagementTravelRepo.create({
+                    engagementId,
+                    travelType: item.travelType,
+                    bookedBy: null,
+                    iaePays,
+                    iaeArranges,
+                    budgetAmount: item.budgetAmount,
+                });
+                await this.engagementTravelRepo.save(newRow);
+            }
+        }
+    }
+    async getEngagementBuyouts(engagementId) {
+        await this.assertEngagementExists(engagementId);
+        const production = await this.dataSource.getRepository(engagement_production_entity_1.EngagementProduction).findOne({ where: { engagementId } });
+        if (!production)
+            return [];
+        const buyouts = await this.engagementBuyoutRepo.find({
+            where: { productionId: production.productionId },
+            order: { engagementBuyoutId: 'ASC' },
+        });
+        return buyouts.map((buyout) => ({
+            engagementBuyoutId: buyout.engagementBuyoutId,
+            buyoutDescription: buyout.buyoutDescription,
+            buyoutBudgetAmount: buyout.buyoutBudgetAmount != null ? Number(buyout.buyoutBudgetAmount) : null,
+        }));
+    }
+    async upsertEngagementBuyouts(engagementId, items) {
+        await this.assertEngagementExists(engagementId);
+        const productionRepo = this.dataSource.getRepository(engagement_production_entity_1.EngagementProduction);
+        let production = await productionRepo.findOne({ where: { engagementId } });
+        if (!production) {
+            production = await productionRepo.save(productionRepo.create({ engagementId }));
+        }
+        const existing = await this.engagementBuyoutRepo.find({ where: { productionId: production.productionId } });
+        const selectedIds = new Set();
+        for (const item of items) {
+            const description = item.buyoutDescription?.trim();
+            if (!description)
+                throw new common_1.BadRequestException('Buyout descriptions are required.');
+            if (description.length > 500)
+                throw new common_1.BadRequestException('Buyout descriptions cannot exceed 500 characters.');
+            if (item.engagementBuyoutId != null) {
+                const row = existing.find((buyout) => buyout.engagementBuyoutId === item.engagementBuyoutId);
+                if (!row)
+                    throw new common_1.BadRequestException('Invalid buyout entry.');
+                selectedIds.add(row.engagementBuyoutId);
+                await this.engagementBuyoutRepo.update({ engagementBuyoutId: row.engagementBuyoutId }, { buyoutDescription: description, buyoutBudgetAmount: item.buyoutBudgetAmount });
+            }
+            else {
+                await this.engagementBuyoutRepo.save(this.engagementBuyoutRepo.create({
+                    productionId: production.productionId,
+                    buyoutDescription: description,
+                    buyoutBudgetAmount: item.buyoutBudgetAmount,
+                }));
+            }
+        }
+        for (const buyout of existing) {
+            if (!selectedIds.has(buyout.engagementBuyoutId)) {
+                await this.engagementBuyoutRepo.delete({ engagementBuyoutId: buyout.engagementBuyoutId });
+            }
+        }
+    }
+    async listEquipmentRentalTypes() {
+        const types = await this.equipmentRentalTypeRepo.find({
+            where: { isActive: true },
+            order: { sortOrder: 'ASC', equipmentRentalTypeId: 'ASC' },
+        });
+        return types.map((t) => ({ equipmentRentalTypeId: t.equipmentRentalTypeId, typeName: t.typeName }));
+    }
+    async getEquipmentRentals(engagementId) {
+        await this.assertEngagementExists(engagementId);
+        const production = await this.dataSource.getRepository(engagement_production_entity_1.EngagementProduction).findOne({
+            where: { engagementId },
+        });
+        if (!production)
+            return [];
+        const rentals = await this.equipmentRentalRepo.find({
+            where: { productionId: production.productionId },
+        });
+        return rentals.map((r) => ({
+            engagementProductionEquipmentRentalId: r.engagementProductionEquipmentRentalId,
+            equipmentRentalTypeId: r.equipmentRentalTypeId,
+            budgetAmount: r.budgetAmount != null ? Number(r.budgetAmount) : null,
+            notes: r.notes,
+            otherDescription: r.otherDescription,
+        }));
+    }
+    async upsertEquipmentRentals(engagementId, items) {
+        await this.assertEngagementExists(engagementId);
+        let production = await this.dataSource.getRepository(engagement_production_entity_1.EngagementProduction).findOne({
+            where: { engagementId },
+        });
+        if (!production) {
+            production = await this.dataSource.getRepository(engagement_production_entity_1.EngagementProduction).save(this.dataSource.getRepository(engagement_production_entity_1.EngagementProduction).create({ engagementId }));
+        }
+        const productionId = production.productionId;
+        const existing = await this.equipmentRentalRepo.find({ where: { productionId } });
+        const rentalTypes = await this.equipmentRentalTypeRepo.find({ where: { isActive: true } });
+        const typeNames = new Map(rentalTypes.map((type) => [type.equipmentRentalTypeId, type.typeName]));
+        const selectedExistingIds = new Set();
+        const standardTypeIds = new Set();
+        for (const item of items) {
+            const typeName = typeNames.get(item.equipmentRentalTypeId);
+            if (!typeName)
+                throw new common_1.BadRequestException('Invalid equipment rental type.');
+            if (item.engagementProductionEquipmentRentalId != null) {
+                const row = existing.find((r) => r.engagementProductionEquipmentRentalId === item.engagementProductionEquipmentRentalId);
+                if (!row || row.equipmentRentalTypeId !== item.equipmentRentalTypeId) {
+                    throw new common_1.BadRequestException('Invalid equipment rental entry.');
+                }
+                selectedExistingIds.add(row.engagementProductionEquipmentRentalId);
+            }
+            if (typeName !== 'Other' && standardTypeIds.has(item.equipmentRentalTypeId)) {
+                throw new common_1.BadRequestException(`${typeName} can only be added once.`);
+            }
+            standardTypeIds.add(item.equipmentRentalTypeId);
+            if (item.notes != null && item.notes.length > 500)
+                throw new common_1.BadRequestException('Equipment notes cannot exceed 500 characters.');
+            if (item.otherDescription != null && item.otherDescription.length > 200)
+                throw new common_1.BadRequestException('Other equipment descriptions cannot exceed 200 characters.');
+            if (typeName === 'Other' && !item.otherDescription?.trim()) {
+                throw new common_1.BadRequestException('Other equipment entries require a description.');
+            }
+        }
+        const toRemove = existing.filter((row) => !selectedExistingIds.has(row.engagementProductionEquipmentRentalId));
+        for (const row of toRemove) {
+            await this.equipmentRentalRepo.delete({ engagementProductionEquipmentRentalId: row.engagementProductionEquipmentRentalId });
+        }
+        for (const item of items) {
+            const existingRow = item.engagementProductionEquipmentRentalId == null
+                ? undefined
+                : existing.find((row) => row.engagementProductionEquipmentRentalId === item.engagementProductionEquipmentRentalId);
+            const notes = item.notes?.trim() || null;
+            const otherDescription = item.otherDescription?.trim() || null;
+            if (existingRow) {
+                await this.equipmentRentalRepo.update({ engagementProductionEquipmentRentalId: existingRow.engagementProductionEquipmentRentalId }, { budgetAmount: item.budgetAmount, notes, otherDescription });
+            }
+            else {
+                await this.equipmentRentalRepo.save(this.equipmentRentalRepo.create({
+                    productionId,
+                    equipmentRentalTypeId: item.equipmentRentalTypeId,
+                    budgetAmount: item.budgetAmount,
+                    notes,
+                    otherDescription,
+                }));
+            }
+        }
+    }
+    async getProductionMisc(engagementId) {
+        await this.assertEngagementExists(engagementId);
+        const production = await this.dataSource.getRepository(engagement_production_entity_1.EngagementProduction).findOne({
+            where: { engagementId },
+        });
+        if (!production) {
+            return {
+                runnerRequired: null,
+                cateringRequired: null,
+                cateringBudgetLineItem: null,
+                productionBuyoutRequired: null,
+                productionBuyoutDescription: null,
+                productionBuyoutBudgetAmount: null,
+            };
+        }
+        return {
+            runnerRequired: production.runnerRequired,
+            cateringRequired: production.cateringRequired,
+            cateringBudgetLineItem: production.cateringBudgetLineItem,
+            productionBuyoutRequired: production.productionBuyoutRequired,
+            productionBuyoutDescription: production.productionBuyoutDescription,
+            productionBuyoutBudgetAmount: production.productionBuyoutBudgetAmount != null ? Number(production.productionBuyoutBudgetAmount) : null,
+        };
+    }
+    async updateProductionMisc(engagementId, dto) {
+        await this.assertEngagementExists(engagementId);
+        const repo = this.dataSource.getRepository(engagement_production_entity_1.EngagementProduction);
+        let production = await repo.findOne({ where: { engagementId } });
+        if (!production) {
+            production = await repo.save(repo.create({ engagementId }));
+        }
+        const patch = {};
+        if (dto.runnerRequired !== null)
+            patch.runnerRequired = dto.runnerRequired;
+        if (dto.cateringRequired !== null)
+            patch.cateringRequired = dto.cateringRequired;
+        if (dto.cateringBudgetLineItem !== undefined)
+            patch.cateringBudgetLineItem = dto.cateringBudgetLineItem;
+        if (dto.productionBuyoutRequired !== null)
+            patch.productionBuyoutRequired = dto.productionBuyoutRequired;
+        if (dto.productionBuyoutDescription !== undefined)
+            patch.productionBuyoutDescription = dto.productionBuyoutDescription;
+        if (dto.productionBuyoutBudgetAmount !== undefined)
+            patch.productionBuyoutBudgetAmount = dto.productionBuyoutBudgetAmount;
+        if (Object.keys(patch).length > 0) {
+            await repo.update({ productionId: production.productionId }, patch);
+        }
     }
     async getEngagementPartner(engagementId) {
         await this.assertEngagementExists(engagementId);
@@ -6790,12 +7365,37 @@ let EngagementService = EngagementService_1 = class EngagementService {
        FROM dbo.PerformanceContracts
        WHERE [EngagementID] = ${eid}
        ORDER BY [ContractID] DESC`);
-        return rows.map((r) => ({
-            ...r,
-            guaranteeAmount: r.guaranteeAmount != null ? Number(r.guaranteeAmount) : null,
-            depositAmount: r.depositAmount != null ? Number(r.depositAmount) : null,
-            balanceAmount: r.balanceAmount != null ? Number(r.balanceAmount) : null,
-        }));
+        return rows.map((r) => {
+            const performancesRaw = r.performances;
+            const insuredRaw = r.additionallyInsured;
+            return {
+                ...r,
+                guaranteeAmount: r.guaranteeAmount != null ? Number(r.guaranteeAmount) : null,
+                depositAmount: r.depositAmount != null ? Number(r.depositAmount) : null,
+                balanceAmount: r.balanceAmount != null ? Number(r.balanceAmount) : null,
+                performances: this.parseJsonArrayColumn(performancesRaw) ??
+                    (performancesRaw ? [{ date: null, time: null, formatted: performancesRaw }] : null),
+                additionallyInsured: this.parseJsonArrayColumn(insuredRaw) ?? (insuredRaw ? [insuredRaw] : null),
+            };
+        });
+    }
+    parseJsonArrayColumn(raw) {
+        if (!raw)
+            return null;
+        try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : null;
+        }
+        catch {
+            return null;
+        }
+    }
+    toJsonColumnValue(val) {
+        if (val === undefined)
+            return undefined;
+        if (val === null || val.length === 0)
+            return null;
+        return JSON.stringify(val);
     }
     async savePerformanceContract(engagementId, dto) {
         await this.assertEngagementExists(engagementId);
@@ -6841,8 +7441,8 @@ let EngagementService = EngagementService_1 = class EngagementService {
         addCol('PaymentMethodType', dto.paymentMethodType, 100);
         addCol('PaymentPayableTo', dto.paymentPayableTo, 255);
         addCol('PaymentBankName', dto.paymentBankName, 255);
-        addCol('Performances', dto.performances, 8000);
-        addCol('AdditionallyInsured', dto.additionallyInsured, 8000);
+        addCol('Performances', this.toJsonColumnValue(dto.performances), 20000);
+        addCol('AdditionallyInsured', this.toJsonColumnValue(dto.additionallyInsured), 20000);
         addCol('AnnotatedPdfBlobName', dto.annotatedPdfBlobName, 500);
         addCol('OriginalFilename', dto.originalFilename, 500);
         addCol('OneDrivePdfUrl', dto.oneDrivePdfUrl, 1000);
@@ -6891,8 +7491,8 @@ let EngagementService = EngagementService_1 = class EngagementService {
         addSet('PaymentMethodType', dto.paymentMethodType, 100);
         addSet('PaymentPayableTo', dto.paymentPayableTo, 255);
         addSet('PaymentBankName', dto.paymentBankName, 255);
-        addSet('Performances', dto.performances, 8000);
-        addSet('AdditionallyInsured', dto.additionallyInsured, 8000);
+        addSet('Performances', this.toJsonColumnValue(dto.performances), 20000);
+        addSet('AdditionallyInsured', this.toJsonColumnValue(dto.additionallyInsured), 20000);
         addSet('AnnotatedPdfBlobName', dto.annotatedPdfBlobName, 500);
         addSet('OriginalFilename', dto.originalFilename, 500);
         addSet('OneDrivePdfUrl', dto.oneDrivePdfUrl, 1000);
@@ -6912,28 +7512,36 @@ exports.EngagementService = EngagementService = EngagementService_1 = __decorate
     __param(1, (0, typeorm_1.InjectRepository)(engagement_finance_entity_1.EngagementFinances)),
     __param(2, (0, typeorm_1.InjectRepository)(engagement_venue_entity_1.EngagementVenue)),
     __param(3, (0, typeorm_1.InjectRepository)(engagement_production_entity_1.EngagementProduction)),
-    __param(4, (0, typeorm_1.InjectRepository)(tour_entity_1.Tour)),
-    __param(5, (0, typeorm_1.InjectRepository)(venue_entity_1.Venue)),
-    __param(6, (0, typeorm_1.InjectRepository)(company_entity_1.Company)),
-    __param(7, (0, typeorm_1.InjectRepository)(venue_service_provider_entity_1.VenueServiceProvider)),
-    __param(8, (0, typeorm_1.InjectRepository)(company_service_entity_1.CompanyService)),
-    __param(9, (0, typeorm_1.InjectRepository)(service_provided_entity_1.ServiceProvided)),
-    __param(10, (0, typeorm_1.InjectRepository)(performance_entity_1.Performance)),
-    __param(11, (0, typeorm_1.InjectRepository)(performance_ticketing_entity_1.PerformanceTicketing)),
-    __param(12, (0, typeorm_1.InjectRepository)(link_entity_1.Link)),
-    __param(13, (0, typeorm_1.InjectRepository)(engagement_iae_contact_entity_1.EngagementIAEContact)),
-    __param(14, (0, typeorm_1.InjectRepository)(contact_entity_1.Contact)),
-    __param(15, (0, typeorm_1.InjectRepository)(contact_info_entity_1.ContactInfo)),
-    __param(16, (0, typeorm_1.InjectRepository)(role_entity_1.Role)),
-    __param(17, (0, typeorm_1.InjectRepository)(department_entity_1.Department)),
-    __param(18, (0, typeorm_1.InjectRepository)(non_resident_withholding_entity_1.NonResidentWithholding)),
-    __param(19, (0, typeorm_1.InjectRepository)(artist_finance_entity_1.ArtistFinance)),
-    __param(20, (0, typeorm_1.InjectRepository)(settlement_finance_entity_1.SettlementFinance)),
-    __param(21, (0, typeorm_1.InjectRepository)(engagement_travel_entity_1.EngagementTravel)),
-    __param(22, (0, typeorm_1.InjectRepository)(engagement_travel_car_service_entity_1.EngagementTravelCarService)),
-    __param(23, (0, typeorm_1.InjectRepository)(engagement_travel_hotel_entity_1.EngagementTravelHotel)),
-    __param(24, (0, typeorm_1.InjectRepository)(engagement_link_entity_1.EngagementLink)),
+    __param(4, (0, typeorm_1.InjectRepository)(engagement_rehearsal_entity_1.EngagementRehearsal)),
+    __param(5, (0, typeorm_1.InjectRepository)(tour_entity_1.Tour)),
+    __param(6, (0, typeorm_1.InjectRepository)(venue_entity_1.Venue)),
+    __param(7, (0, typeorm_1.InjectRepository)(company_entity_1.Company)),
+    __param(8, (0, typeorm_1.InjectRepository)(venue_service_provider_entity_1.VenueServiceProvider)),
+    __param(9, (0, typeorm_1.InjectRepository)(company_service_entity_1.CompanyService)),
+    __param(10, (0, typeorm_1.InjectRepository)(service_provided_entity_1.ServiceProvided)),
+    __param(11, (0, typeorm_1.InjectRepository)(performance_entity_1.Performance)),
+    __param(12, (0, typeorm_1.InjectRepository)(performance_ticketing_entity_1.PerformanceTicketing)),
+    __param(13, (0, typeorm_1.InjectRepository)(link_entity_1.Link)),
+    __param(14, (0, typeorm_1.InjectRepository)(engagement_iae_contact_entity_1.EngagementIAEContact)),
+    __param(15, (0, typeorm_1.InjectRepository)(contact_entity_1.Contact)),
+    __param(16, (0, typeorm_1.InjectRepository)(contact_info_entity_1.ContactInfo)),
+    __param(17, (0, typeorm_1.InjectRepository)(role_entity_1.Role)),
+    __param(18, (0, typeorm_1.InjectRepository)(department_entity_1.Department)),
+    __param(19, (0, typeorm_1.InjectRepository)(non_resident_withholding_entity_1.NonResidentWithholding)),
+    __param(20, (0, typeorm_1.InjectRepository)(artist_finance_entity_1.ArtistFinance)),
+    __param(21, (0, typeorm_1.InjectRepository)(settlement_finance_entity_1.SettlementFinance)),
+    __param(22, (0, typeorm_1.InjectRepository)(engagement_travel_entity_1.EngagementTravel)),
+    __param(23, (0, typeorm_1.InjectRepository)(engagement_travel_car_service_entity_1.EngagementTravelCarService)),
+    __param(24, (0, typeorm_1.InjectRepository)(engagement_travel_hotel_entity_1.EngagementTravelHotel)),
+    __param(25, (0, typeorm_1.InjectRepository)(engagement_buyout_entity_1.EngagementBuyout)),
+    __param(26, (0, typeorm_1.InjectRepository)(engagement_link_entity_1.EngagementLink)),
+    __param(27, (0, typeorm_1.InjectRepository)(engagement_production_equipment_rental_entity_1.EngagementProductionEquipmentRental)),
+    __param(28, (0, typeorm_1.InjectRepository)(equipment_rental_type_entity_1.EquipmentRentalType)),
     __metadata("design:paramtypes", [typeorm_2.Repository,
+        typeorm_2.Repository,
+        typeorm_2.Repository,
+        typeorm_2.Repository,
+        typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,

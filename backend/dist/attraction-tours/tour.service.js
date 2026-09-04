@@ -343,7 +343,7 @@ let TourService = TourService_1 = class TourService {
         }
         return map;
     }
-    mapTourEntityToRow(t, tourBannerImageUrl, talentAgents, ageRanges, mediaMix) {
+    mapTourEntityToRow(t, tourBannerImageUrl, talentAgents, ageRanges, mediaMix, counts) {
         const ageLabels = ageRanges?.labels ?? [];
         return {
             tourId: t.tourId,
@@ -379,6 +379,10 @@ let TourService = TourService_1 = class TourService {
             tourBannerImageUrl,
             mediaMix: mediaMix ?? [],
             appCreated: this.emsCreated.canDeleteTour(t.tourId),
+            projectCount: counts?.projectCount ?? 0,
+            engagementCount: counts?.engagementCount ?? 0,
+            projectNames: counts?.projectNames ?? [],
+            engagementNames: counts?.engagementNames ?? [],
         };
     }
     toPositiveIntOrNull(v) {
@@ -387,6 +391,51 @@ let TourService = TourService_1 = class TourService {
     }
     toTrimmedOrNull(v) {
         return v == null || v === '' ? null : String(v).trim();
+    }
+    async tourProjectAndEngagementCounts(tourIds) {
+        const map = new Map();
+        const uniq = [...new Set(tourIds)].filter((id) => Number.isInteger(id) && id > 0);
+        for (const id of uniq)
+            map.set(id, { projectCount: 0, engagementCount: 0, projectNames: [], engagementNames: [] });
+        if (!uniq.length)
+            return map;
+        const projectRows = await this.engagementProjectRepo.manager.query(`SELECT TourID, EngagementProjectID, OfferCreationStatus FROM dbo.EngagementProject WHERE TourID IN (${uniq.join(',')}) ORDER BY CreatedDate DESC`);
+        for (const r of projectRows) {
+            const entry = map.get(r.TourID);
+            if (entry) {
+                entry.projectCount++;
+                entry.projectNames.push(`Project #${r.EngagementProjectID} (${r.OfferCreationStatus})`);
+            }
+        }
+        const engRows = await this.engagementRepo.manager.query(`SELECT e.TourID, e.EngagementID, e.EngagementStatus,
+          CASE
+            WHEN a.AttractionName IS NOT NULL AND vc.CompanyName IS NOT NULL
+              THEN a.AttractionName + N' — ' + t.TourName + N' @ ' + vc.CompanyName
+            WHEN a.AttractionName IS NOT NULL
+              THEN a.AttractionName + N' — ' + t.TourName
+            WHEN vc.CompanyName IS NOT NULL
+              THEN t.TourName + N' @ ' + vc.CompanyName
+            ELSE t.TourName
+          END AS displayTitle
+        FROM dbo.Engagement e
+        INNER JOIN dbo.Tour t ON t.TourID = e.TourID
+        LEFT JOIN dbo.Attraction a ON a.AttractionID = t.AttractionID
+        LEFT JOIN (
+          SELECT ev.EngagementID, c.CompanyName,
+            ROW_NUMBER() OVER (PARTITION BY ev.EngagementID ORDER BY ev.VenueCompanyID) AS rn
+          FROM dbo.EngagementVenue ev
+          INNER JOIN dbo.Company c ON c.CompanyID = ev.VenueCompanyID
+        ) vc ON vc.EngagementID = e.EngagementID AND vc.rn = 1
+        WHERE e.TourID IN (${uniq.join(',')})
+        ORDER BY e.EngagementID DESC`);
+        for (const r of engRows) {
+            const entry = map.get(r.TourID);
+            if (entry) {
+                entry.engagementCount++;
+                entry.engagementNames.push(`${r.displayTitle} (${r.EngagementStatus})`);
+            }
+        }
+        return map;
     }
     async tourMediaMixByTourIds(tourIds) {
         const uniq = [...new Set(tourIds)].filter((id) => Number.isInteger(id) && id > 0);
@@ -518,7 +567,36 @@ let TourService = TourService_1 = class TourService {
         const agentMap = await this.tourTalentAgentsByTourIds(rows.map((t) => t.tourId));
         const ageMap = await this.tourAgeRangesByTourIds(rows.map((t) => t.tourId));
         const mediaMixMap = await this.tourMediaMixByTourIds(rows.map((t) => t.tourId));
-        return rows.map((t) => this.mapTourEntityToRow(t, bannerMap.get(t.tourId) ?? null, agentMap.get(t.tourId), ageMap.get(t.tourId), mediaMixMap.get(t.tourId)));
+        const countsMap1 = await this.tourProjectAndEngagementCounts(rows.map((t) => t.tourId));
+        return rows.map((t) => this.mapTourEntityToRow(t, bannerMap.get(t.tourId) ?? null, agentMap.get(t.tourId), ageMap.get(t.tourId), mediaMixMap.get(t.tourId), countsMap1.get(t.tourId)));
+    }
+    async listProjectsByTour(tourId) {
+        const id = Math.floor(tourId);
+        if (!Number.isFinite(id) || id < 1)
+            return [];
+        const tour = await this.tourRepo.findOne({
+            where: { tourId: id },
+            relations: { attraction: true, talentAgencyCompany: true },
+        });
+        const attractionName = tour?.attraction?.attractionName ?? null;
+        const tourName = tour?.tourName ?? null;
+        const talentAgencyName = tour?.talentAgencyCompany?.companyName ?? null;
+        const projects = await this.engagementProjectRepo.find({
+            where: { tourId: id },
+            order: { createdDate: 'DESC' },
+        });
+        return projects.map((p) => ({
+            engagementProjectId: p.engagementProjectId,
+            tourId: p.tourId,
+            attractionName,
+            tourName,
+            talentAgencyName,
+            projectStage: p.projectStage,
+            offerReviewStatus: p.offerReviewStatus ?? null,
+            confirmedOfferLinkId: p.confirmedOfferLinkId ?? null,
+            createdDate: p.createdDate,
+            createdBy: p.createdBy ?? null,
+        }));
     }
     async listPaginated(offset, limit, q, sortByRaw, sortDirRaw) {
         const qb = this.tourRepo
@@ -564,8 +642,9 @@ let TourService = TourService_1 = class TourService {
         const agentMap = await this.tourTalentAgentsByTourIds(rows.map((t) => t.tourId));
         const ageMap = await this.tourAgeRangesByTourIds(rows.map((t) => t.tourId));
         const mediaMixMap = await this.tourMediaMixByTourIds(rows.map((t) => t.tourId));
+        const countsMap = await this.tourProjectAndEngagementCounts(rows.map((t) => t.tourId));
         return {
-            data: rows.map((t) => this.mapTourEntityToRow(t, bannerMap.get(t.tourId) ?? null, agentMap.get(t.tourId), ageMap.get(t.tourId), mediaMixMap.get(t.tourId))),
+            data: rows.map((t) => this.mapTourEntityToRow(t, bannerMap.get(t.tourId) ?? null, agentMap.get(t.tourId), ageMap.get(t.tourId), mediaMixMap.get(t.tourId), countsMap.get(t.tourId))),
             total,
         };
     }
@@ -594,8 +673,9 @@ let TourService = TourService_1 = class TourService {
         const agentMap = await this.tourTalentAgentsByTourIds(rows.map((t) => t.tourId));
         const ageMap = await this.tourAgeRangesByTourIds(rows.map((t) => t.tourId));
         const mediaMixMap = await this.tourMediaMixByTourIds(rows.map((t) => t.tourId));
+        const countsMap2 = await this.tourProjectAndEngagementCounts(rows.map((t) => t.tourId));
         return {
-            data: rows.map((t) => this.mapTourEntityToRow(t, bannerMap.get(t.tourId) ?? null, agentMap.get(t.tourId), ageMap.get(t.tourId), mediaMixMap.get(t.tourId))),
+            data: rows.map((t) => this.mapTourEntityToRow(t, bannerMap.get(t.tourId) ?? null, agentMap.get(t.tourId), ageMap.get(t.tourId), mediaMixMap.get(t.tourId), countsMap2.get(t.tourId))),
             total,
         };
     }
@@ -806,7 +886,8 @@ let TourService = TourService_1 = class TourService {
         const agentMap = await this.tourTalentAgentsByTourIds([tourId]);
         const ageMap = await this.tourAgeRangesByTourIds([tourId]);
         const mediaMixMap = await this.tourMediaMixByTourIds([tourId]);
-        return this.mapTourEntityToRow(t, bannerMap.get(tourId) ?? null, agentMap.get(tourId), ageMap.get(tourId), mediaMixMap.get(tourId));
+        const countsMap3 = await this.tourProjectAndEngagementCounts([tourId]);
+        return this.mapTourEntityToRow(t, bannerMap.get(tourId) ?? null, agentMap.get(tourId), ageMap.get(tourId), mediaMixMap.get(tourId), countsMap3.get(tourId));
     }
     async remove(id) {
         const existing = await this.tourRepo.findOne({ where: { tourId: id } });

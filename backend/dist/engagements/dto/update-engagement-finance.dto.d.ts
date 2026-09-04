@@ -42,6 +42,7 @@ export declare class UpdateEngagementFinanceDto {
     subscriptionSalesRevenueTotal?: number | null;
     seasonTicketSalesByIae?: number | null;
     seasonTicketFundsTransferred?: number | null;
+    totalRevenue?: number | null;
     netBoxOfficeFundsDepositedAccount?: string | null;
     hstCollectedFromTicketSales?: number | null;
     hstPaidOnTourPayments?: number | null;
@@ -90,6 +91,8 @@ export declare class UpdateEngagementFinanceDto {
     finalRoyaltyAmount?: number | null;
     finalOverageAmount?: number | null;
     finalBuyoutAmount?: number | null;
+    finalOtherAmount?: number | null;
+    finalConcessionsAmount?: number | null;
     finalDirectCompanyCharges?: number | null;
     finalReimbursables?: number | null;
 }

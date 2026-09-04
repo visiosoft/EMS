@@ -8,5 +8,6 @@ export declare class Engagement extends AuditColumns {
     sellableCapacity: number | null;
     grossPotential: string | number | null;
     tourManagerContactId: number | null;
+    vipPdfLinkId: number | null;
     tour: Tour;
 }

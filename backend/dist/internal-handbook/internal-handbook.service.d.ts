@@ -17,11 +17,19 @@ export declare class InternalHandbookService {
     constructor(dataSource: DataSource);
     findAllSections(): Promise<HandbookSectionGrouped[]>;
     findSectionBySectionId(sectionId: string): Promise<HandbookSectionGrouped | null>;
+    getImage(sectionContentId: number, index: number): Promise<{
+        buffer: Buffer;
+        mimeType: string;
+    } | null>;
     private stripNumberPrefix;
     private rowToGrouped;
     private sectionTitleToId;
     private slugify;
     private htmlToBlocks;
+    private extractOrderedImages;
+    private extractContainerImage;
     private stripHtml;
+    private normalizeText;
+    private isFullyBold;
     private decodeEntities;
 }

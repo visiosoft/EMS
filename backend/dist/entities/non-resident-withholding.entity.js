@@ -20,6 +20,7 @@ let NonResidentWithholding = class NonResidentWithholding {
     artistWaiverInstructionsId;
     iaeWaiverInstructionsId;
     withholdingArea;
+    areaCategory;
     withholdingAgencyName;
     withholdingPayee;
     paymentMethod;
@@ -69,6 +70,10 @@ __decorate([
     (0, typeorm_1.Column)({ name: 'WithholdingArea', type: 'nvarchar', length: 100, nullable: true }),
     __metadata("design:type", Object)
 ], NonResidentWithholding.prototype, "withholdingArea", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'AreaCategory', type: 'nvarchar', length: 20, nullable: true }),
+    __metadata("design:type", Object)
+], NonResidentWithholding.prototype, "areaCategory", void 0);
 __decorate([
     (0, typeorm_1.Column)({ name: 'WithholdingAgencyName', type: 'nvarchar', length: 200, nullable: true }),
     __metadata("design:type", Object)

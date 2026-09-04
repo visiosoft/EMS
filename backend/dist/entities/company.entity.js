@@ -43,7 +43,7 @@ __decorate([
     __metadata("design:type", company_type_entity_1.CompanyType)
 ], Company.prototype, "companyType", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'CompanyName', type: 'nvarchar', length: 200 }),
+    (0, typeorm_1.Column)({ name: 'CompanyName', type: 'nvarchar', length: 1000 }),
     __metadata("design:type", String)
 ], Company.prototype, "companyName", void 0);
 __decorate([

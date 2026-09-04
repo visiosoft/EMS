@@ -15,6 +15,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.InternalNewsController = void 0;
 const common_1 = require("@nestjs/common");
 const internal_access_guard_1 = require("../internal-access/internal-access.guard");
+const access_level_guard_1 = require("../common/access-level.guard");
+const require_access_level_decorator_1 = require("../common/require-access-level.decorator");
+const access_level_enum_1 = require("../common/access-level.enum");
 const create_news_dto_1 = require("./dto/create-news.dto");
 const internal_news_service_1 = require("./internal-news.service");
 let InternalNewsController = class InternalNewsController {
@@ -39,6 +42,8 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], InternalNewsController.prototype, "findAll", null);
 __decorate([
+    (0, common_1.UseGuards)(access_level_guard_1.AccessLevelGuard),
+    (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
     (0, common_1.Post)(),
     __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),

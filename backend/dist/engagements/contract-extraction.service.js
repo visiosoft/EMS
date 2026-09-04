@@ -80,8 +80,8 @@ const FIELD_DEFS = [
     { key: 'paymentMethodType', label: 'payment method type', kind: 'text' },
     { key: 'paymentPayableTo', label: 'payment payable to', kind: 'text' },
     { key: 'paymentBankName', label: 'payment bank name', kind: 'text' },
-    { key: 'performances', label: 'performances', kind: 'section' },
-    { key: 'additionallyInsured', label: 'additionally insured', kind: 'section' },
+    { key: 'performances', label: 'performances', kind: 'performance-list' },
+    { key: 'additionallyInsured', label: 'additionally insured', kind: 'insured-list' },
     { key: 'oneDrivePdfUrl', label: 'onedrive pdf url', kind: 'text' },
 ];
 const FIELD_NAME_ALIASES = {
@@ -169,11 +169,19 @@ let ContractExtractionService = ContractExtractionService_1 = class ContractExtr
         const normalizedDoc = docText ? this.normalizeForMatch(docText) : null;
         for (const def of contract_field_schema_1.CONTRACT_FIELD_DEFS) {
             const field = raw?.[def.key];
+            if (def.type === 'performance-list') {
+                this.assignPerformanceList(field, data, fieldMeta, normalizedDoc, isOcr);
+                continue;
+            }
+            if (def.type === 'insured-list') {
+                this.assignInsuredList(field, data, fieldMeta, normalizedDoc, isOcr);
+                continue;
+            }
             const rawValue = (field?.value ?? '').toString().trim();
             const quote = ((field?.sourceQuote ?? '').toString().trim() || null);
             const pageNum = Number(field?.sourcePage ?? 0);
             const page = Number.isFinite(pageNum) && pageNum > 0 ? pageNum : null;
-            let confidence = this.clamp01(Number(field?.confidence ?? 0));
+            const confidence = this.clamp01(Number(field?.confidence ?? 0));
             if (!rawValue) {
                 fieldMeta[def.key] = { confidence: 0, status: 'not_found', sourceQuote: null, sourcePage: page, verified: false };
                 continue;
@@ -184,35 +192,121 @@ let ContractExtractionService = ContractExtractionService_1 = class ContractExtr
                 continue;
             }
             data[def.key] = normalized;
-            let verified = false;
-            if (quote && normalizedDoc) {
-                verified = normalizedDoc.includes(this.normalizeForMatch(quote));
-                if (!verified)
-                    confidence = Math.min(confidence, 0.4);
-            }
-            if (isOcr)
-                confidence = Math.min(confidence, 0.7);
-            const trustworthy = !isOcr && (verified || !quote);
-            const status = confidence >= HIGH_CONFIDENCE && trustworthy ? 'high' : 'review';
-            fieldMeta[def.key] = { confidence, status, sourceQuote: quote, sourcePage: page, verified };
+            fieldMeta[def.key] = { sourceQuote: quote, sourcePage: page, ...this.computeFieldStatus(quote, normalizedDoc, isOcr, confidence) };
         }
         this.applyDerivations(data, fieldMeta);
         return { data, fieldMeta };
     }
+    computeFieldStatus(quote, normalizedDoc, isOcr, confidenceIn) {
+        let confidence = confidenceIn;
+        let verified = false;
+        if (quote && normalizedDoc) {
+            verified = normalizedDoc.includes(this.normalizeForMatch(quote));
+            if (!verified)
+                confidence = Math.min(confidence, 0.4);
+        }
+        if (isOcr)
+            confidence = Math.min(confidence, 0.7);
+        const trustworthy = !isOcr && (verified || !quote);
+        const status = confidence >= HIGH_CONFIDENCE && trustworthy ? 'high' : 'review';
+        return { confidence, status, verified };
+    }
+    assignPerformanceList(field, data, fieldMeta, normalizedDoc, isOcr) {
+        const quote = ((field?.sourceQuote ?? '').toString().trim() || null);
+        const pageNum = Number(field?.sourcePage ?? 0);
+        const page = Number.isFinite(pageNum) && pageNum > 0 ? pageNum : null;
+        const confidence = this.clamp01(Number(field?.confidence ?? 0));
+        const rawItems = Array.isArray(field?.value) ? field.value : [];
+        const items = rawItems
+            .map((item) => {
+            if (!item || typeof item !== 'object')
+                return null;
+            const o = item;
+            const dateStr = typeof o.date === 'string' ? o.date.trim() : '';
+            const timeStr = typeof o.time === 'string' ? o.time.trim() : '';
+            const formatted = (typeof o.formatted === 'string' ? o.formatted.trim() : '').slice(0, 500);
+            if (!dateStr && !timeStr && !formatted)
+                return null;
+            return {
+                date: dateStr ? this.parseDate(dateStr) : null,
+                time: timeStr ? this.parseTime(timeStr) : null,
+                formatted: formatted || [dateStr, timeStr].filter(Boolean).join(' '),
+            };
+        })
+            .filter((x) => x !== null);
+        if (!items.length) {
+            fieldMeta.performances = { confidence: 0, status: 'not_found', sourceQuote: null, sourcePage: page, verified: false };
+            return;
+        }
+        data.performances = items;
+        fieldMeta.performances = { sourceQuote: quote, sourcePage: page, ...this.computeFieldStatus(quote, normalizedDoc, isOcr, confidence) };
+    }
+    assignInsuredList(field, data, fieldMeta, normalizedDoc, isOcr) {
+        const quote = ((field?.sourceQuote ?? '').toString().trim() || null);
+        const pageNum = Number(field?.sourcePage ?? 0);
+        const page = Number.isFinite(pageNum) && pageNum > 0 ? pageNum : null;
+        const confidence = this.clamp01(Number(field?.confidence ?? 0));
+        const rawItems = Array.isArray(field?.value) ? field.value : [];
+        const parties = rawItems
+            .map((v) => (typeof v === 'string' ? v.trim().slice(0, 255) : ''))
+            .filter(Boolean);
+        if (!parties.length) {
+            fieldMeta.additionallyInsured = { confidence: 0, status: 'not_found', sourceQuote: null, sourcePage: page, verified: false };
+            return;
+        }
+        data.additionallyInsured = parties;
+        fieldMeta.additionallyInsured = { sourceQuote: quote, sourcePage: page, ...this.computeFieldStatus(quote, normalizedDoc, isOcr, confidence) };
+    }
     applyDerivations(data, fieldMeta) {
         for (const def of contract_field_schema_1.CONTRACT_FIELD_DEFS) {
-            if (def.derivation !== 'balanceFromGuaranteeMinusDeposit')
-                continue;
-            if (data.balanceAmount != null)
-                continue;
-            if (data.guaranteeAmount == null || data.depositAmount == null)
-                continue;
-            const balance = data.guaranteeAmount - data.depositAmount;
-            if (balance <= 0)
-                continue;
-            data.balanceAmount = balance;
-            fieldMeta.balanceAmount = { confidence: 0.6, status: 'derived', sourceQuote: null, sourcePage: null, verified: false };
+            if (def.derivation === 'balanceFromGuaranteeMinusDeposit') {
+                if (data.balanceAmount != null)
+                    continue;
+                if (data.guaranteeAmount == null || data.depositAmount == null)
+                    continue;
+                const balance = data.guaranteeAmount - data.depositAmount;
+                if (balance <= 0)
+                    continue;
+                data.balanceAmount = balance;
+                fieldMeta.balanceAmount = { confidence: 0.6, status: 'derived', sourceQuote: null, sourcePage: null, verified: false };
+            }
+            else if (def.derivation === 'additionallyInsuredFromParties') {
+                this.deriveAdditionallyInsured(data, fieldMeta);
+            }
         }
+        this.ensureAgencyFirstInsured(data);
+    }
+    deriveAdditionallyInsured(data, fieldMeta) {
+        if (data.additionallyInsured?.length)
+            return;
+        const seen = new Set();
+        const parties = [data.agency, data.producer, data.presenter]
+            .map((p) => p?.trim())
+            .filter((p) => !!p)
+            .filter((p) => {
+            const key = p.toLowerCase();
+            if (seen.has(key))
+                return false;
+            seen.add(key);
+            return true;
+        });
+        if (!parties.length)
+            return;
+        data.additionallyInsured = parties;
+        fieldMeta.additionallyInsured = {
+            confidence: 0.6,
+            status: 'derived',
+            sourceQuote: null,
+            sourcePage: null,
+            verified: false,
+        };
+    }
+    ensureAgencyFirstInsured(data) {
+        const agency = data.agency?.trim();
+        if (!agency || !data.additionallyInsured?.length)
+            return;
+        const rest = data.additionallyInsured.filter((p) => p.trim().toLowerCase() !== agency.toLowerCase());
+        data.additionallyInsured = [agency, ...rest];
     }
     normalizeFieldValue(def, raw) {
         switch (def.type) {
@@ -362,6 +456,20 @@ let ContractExtractionService = ContractExtractionService_1 = class ContractExtr
                     result[def.key] = d;
                 break;
             }
+            case 'performance-list': {
+                result.performances = [
+                    { date: this.parseDate(raw), time: this.parseTime(raw), formatted: raw.slice(0, 500) },
+                ];
+                break;
+            }
+            case 'insured-list': {
+                const parties = raw
+                    .split(/;|(?:,|\band\b)(?=\s*[A-Z])/)
+                    .map((s) => s.trim())
+                    .filter(Boolean);
+                result.additionallyInsured = parties.length ? parties : [raw.slice(0, 500)];
+                break;
+            }
             case 'section':
             case 'text':
             default:
@@ -469,6 +577,19 @@ let ContractExtractionService = ContractExtractionService_1 = class ContractExtr
             return `${slashDate[3]}-${slashDate[1].padStart(2, '0')}-${slashDate[2].padStart(2, '0')}`;
         return null;
     }
+    parseTime(raw) {
+        const ampm = raw.match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+        if (ampm) {
+            let h = parseInt(ampm[1], 10) % 12;
+            if (/pm/i.test(ampm[3]))
+                h += 12;
+            return `${String(h).padStart(2, '0')}:${ampm[2]}`;
+        }
+        const h24 = raw.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+        if (h24)
+            return `${h24[1].padStart(2, '0')}:${h24[2]}`;
+        return null;
+    }
     monthToNum(month) {
         const months = {
             jan: '01', january: '01', feb: '02', february: '02', mar: '03', march: '03',
@@ -491,6 +612,7 @@ let ContractExtractionService = ContractExtractionService_1 = class ContractExtr
             producer: null,
             producerAddress: null,
             producerFedId: null,
+            presenter: null,
             guaranteeAmount: null,
             guaranteeCurrency: null,
             depositAmount: null,

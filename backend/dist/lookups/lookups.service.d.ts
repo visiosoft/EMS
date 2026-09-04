@@ -3,6 +3,7 @@ import { Class } from '../entities/class.entity';
 import { CompanyType } from '../entities/company-type.entity';
 import { Department } from '../entities/department.entity';
 import { Dma } from '../entities/dma.entity';
+import { DmaPopulation } from '../entities/dma-population.entity';
 import { Role } from '../entities/role.entity';
 import { SeatingType } from '../entities/seating-type.entity';
 import { VenueType } from '../entities/venue-type.entity';
@@ -11,6 +12,7 @@ import { ServiceProvided } from '../entities/service-provided.entity';
 import { Tax } from '../entities/tax.entity';
 import { CompanyService as CompanyServiceEntity } from '../entities/company-service.entity';
 import { CompanyTypeService } from '../entities/company-type-service.entity';
+import { DepartmentRole } from '../entities/department-role.entity';
 import { Company } from '../entities/company.entity';
 import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
 import { CreateLookupRowDto, UpdateLookupRowDto } from './dto/manage-lookup-row.dto';
@@ -20,6 +22,7 @@ export declare class LookupsService {
     private readonly departmentRepo;
     private readonly seatingTypeRepo;
     private readonly dmaRepo;
+    private readonly dmaPopulationRepo;
     private readonly classRepo;
     private readonly venueTypeRepo;
     private readonly brandRepo;
@@ -27,15 +30,35 @@ export declare class LookupsService {
     private readonly serviceProvidedRepo;
     private readonly companyServiceRepo;
     private readonly companyTypeServiceRepo;
+    private readonly departmentRoleRepo;
     private readonly companyRepo;
     private readonly nonResidentWithholdingRepo;
-    constructor(companyTypeRepo: Repository<CompanyType>, roleRepo: Repository<Role>, departmentRepo: Repository<Department>, seatingTypeRepo: Repository<SeatingType>, dmaRepo: Repository<Dma>, classRepo: Repository<Class>, venueTypeRepo: Repository<VenueType>, brandRepo: Repository<Brand>, taxRepo: Repository<Tax>, serviceProvidedRepo: Repository<ServiceProvided>, companyServiceRepo: Repository<CompanyServiceEntity>, companyTypeServiceRepo: Repository<CompanyTypeService>, companyRepo: Repository<Company>, nonResidentWithholdingRepo: Repository<NonResidentWithholding>);
+    constructor(companyTypeRepo: Repository<CompanyType>, roleRepo: Repository<Role>, departmentRepo: Repository<Department>, seatingTypeRepo: Repository<SeatingType>, dmaRepo: Repository<Dma>, dmaPopulationRepo: Repository<DmaPopulation>, classRepo: Repository<Class>, venueTypeRepo: Repository<VenueType>, brandRepo: Repository<Brand>, taxRepo: Repository<Tax>, serviceProvidedRepo: Repository<ServiceProvided>, companyServiceRepo: Repository<CompanyServiceEntity>, companyTypeServiceRepo: Repository<CompanyTypeService>, departmentRoleRepo: Repository<DepartmentRole>, companyRepo: Repository<Company>, nonResidentWithholdingRepo: Repository<NonResidentWithholding>);
     private hasDboColumn;
     private companyTypeIdsForCompany;
     private assertCompanyServiceAllowed;
     findCompanyTypes(): Promise<CompanyType[]>;
     findRoles(): Promise<Role[]>;
     findDepartments(): Promise<Department[]>;
+    findDepartmentRoles(): Promise<{
+        departmentRoleId: number;
+        departmentId: number;
+        roleId: number;
+        departmentName: string;
+        roleName: string;
+    }[]>;
+    getContactsUsingDepartmentRoles(departmentId: number): Promise<{
+        firstName: string;
+        lastName: string;
+        email: string;
+        roleName: string;
+        companyName: string;
+        source: string;
+    }[]>;
+    getCompaniesUsingCompanyTypeServices(companyTypeId: number): Promise<{
+        companyName: string;
+        serviceName: string;
+    }[]>;
     findSeatingTypes(): Promise<SeatingType[]>;
     findClasses(): Promise<Class[]>;
     findVenueTypes(): Promise<VenueType[]>;
@@ -60,6 +83,8 @@ export declare class LookupsService {
     }[]>;
     findDmaByPostal(postalCode: string): Promise<Dma | null>;
     private buildDmaMarketsGroupedSubquery;
+    private dmaPopulationCache;
+    private loadBestDmaPopulationByNormName;
     private applyDmaMarketSearchFilter;
     private mapDmaMarketRows;
     private mapDmaHubMarketRows;
@@ -81,27 +106,49 @@ export declare class LookupsService {
         }[];
         total: number;
     }>;
+    findDmaMarketsPaginatedEnriched(offset: number, limit: number, query?: string): Promise<{
+        data: {
+            dmaid: number;
+            marketName: string;
+            postalCode: string;
+            population: number | null;
+            nielsenRank: number | null;
+        }[];
+        total: number;
+    }>;
+    findDmaMarketsByCity(city: string, limit?: number): Promise<{
+        dmaid: number;
+        marketName: string;
+        postalCode: string;
+    }[]>;
     findDmaHubMarketsPaginated(offset: number, limit: number, query?: string): Promise<{
         data: {
             dmaid: number;
             marketName: string;
-            samplePostalCode: string;
-            postalCount: number;
+            nielsenMarketName: string | null;
+            nielsenCode: number | null;
+            nielsenRank: number | null;
+            population: number | null;
         }[];
         total: number;
     }>;
     findDmaHubMarketSuggestions(query: string, limit?: number): Promise<{
         dmaid: number;
         marketName: string;
-        samplePostalCode: string;
-        postalCount: number;
+        nielsenMarketName: string | null;
+        nielsenCode: number | null;
+        nielsenRank: number | null;
+        population: number | null;
     }[]>;
     private resolveManagedLookupTable;
     private normalizeRequiredName;
     private toPositiveInt;
     private normalizeServiceProvidedIds;
     private assertServicesExist;
+    private normalizeRoleIds;
+    private assertRolesExist;
     private companyTypeServiceGroup;
+    private departmentRoleGroup;
     private parseSortDirection;
     private searchTokens;
     private escapeLikePattern;
@@ -126,6 +173,17 @@ export declare class LookupsService {
         services: {
             serviceProvidedId: number;
             serviceName: string;
+        }[];
+    } | {
+        departmentRoleId: number;
+        departmentId: number;
+        departmentName: string;
+        roleIds: number[];
+        roleNames: string[];
+        roleName: string;
+        roles: {
+            roleId: number;
+            roleName: string;
         }[];
     } | {
         companyServiceId: number;
@@ -368,6 +426,17 @@ export declare class LookupsService {
         services: {
             serviceProvidedId: number;
             serviceName: string;
+        }[];
+    } | {
+        departmentRoleId: number;
+        departmentId: number;
+        departmentName: string;
+        roleIds: number[];
+        roleNames: string[];
+        roleName: string;
+        roles: {
+            roleId: number;
+            roleName: string;
         }[];
     } | {
         companyServiceId: number;

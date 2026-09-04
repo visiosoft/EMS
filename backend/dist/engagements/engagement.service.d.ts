@@ -9,6 +9,7 @@ import { Engagement } from '../entities/engagement.entity';
 import { EngagementIAEContact } from '../entities/engagement-iae-contact.entity';
 import { EngagementFinances } from '../entities/engagement-finance.entity';
 import { EngagementProduction } from '../entities/engagement-production.entity';
+import { EngagementRehearsal } from '../entities/engagement-rehearsal.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { VenueServiceProvider } from '../entities/venue-service-provider.entity';
 import { CompanyService as CompanyServiceEntity } from '../entities/company-service.entity';
@@ -38,6 +39,9 @@ import { CreateEngagementTravelHotelDto, UpdateEngagementTravelHotelDto, CreateE
 import { EngagementTravel } from '../entities/engagement-travel.entity';
 import { EngagementTravelCarService } from '../entities/engagement-travel-car-service.entity';
 import { EngagementTravelHotel } from '../entities/engagement-travel-hotel.entity';
+import { EngagementBuyout } from '../entities/engagement-buyout.entity';
+import { EngagementProductionEquipmentRental } from '../entities/engagement-production-equipment-rental.entity';
+import { EquipmentRentalType } from '../entities/equipment-rental-type.entity';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
 export interface EngagementDeleteImpact {
     canDelete: boolean;
@@ -157,8 +161,20 @@ export interface EngagementTravelCarServiceRow {
     bookedBy: string | null;
     originAddressId: number | null;
     originAddressLabel: string | null;
+    originAddressLine1: string | null;
+    originAddressLine2: string | null;
+    originAddressCity: string | null;
+    originAddressStateProvince: string | null;
+    originAddressPostalCode: string | null;
+    originAddressCountry: string | null;
     destinationAddressId: number | null;
     destinationAddressLabel: string | null;
+    destinationAddressLine1: string | null;
+    destinationAddressLine2: string | null;
+    destinationAddressCity: string | null;
+    destinationAddressStateProvince: string | null;
+    destinationAddressPostalCode: string | null;
+    destinationAddressCountry: string | null;
     pickupDateTime: string | null;
 }
 export interface EngagementTravelHotelRow {
@@ -181,7 +197,7 @@ export interface EngagementTravelHotelRow {
 }
 export interface EngagementTravelRow {
     engagementTravelId: number;
-    travelType: 'Hotel' | 'Car';
+    travelType: string;
     hotel: EngagementTravelHotelRow | null;
     carServices: EngagementTravelCarServiceRow[];
 }
@@ -257,7 +273,7 @@ export interface EngagementFinanceRow {
     netMarketingBudget: number | null;
     salesRevenueGoal: number | null;
     promoterProfit: number | null;
-    venueDealType: 'Rental' | 'CoPro' | '3rd Party Renting Venue' | 'Silent CoPro with Venue' | null;
+    venueDealType: 'Rental' | 'CoPro' | '3rd Party Renting Venue' | 'Silent CoPro with Venue' | 'CoPro with 3rd Party' | 'CoPro with 3rd Party, 3rd Party Renting Venue' | 'Silent CoPro with 3rd Party, 3rd Party Renting Venue' | null;
     thirdPartyPartnerDealStructure: 'CoPro with 3rd Party' | 'CoPro with 3rd Party, 3rd Party Renting Venue' | 'Silent CoPro with 3rd Party, 3rd Party Renting Venue' | null;
     venueDealTypeId: number | null;
     venueDealTypeName: string | null;
@@ -280,6 +296,7 @@ export interface EngagementFinanceRow {
     subscriptionSalesRevenueTotal: number | null;
     seasonTicketSalesByIae: number | null;
     seasonTicketFundsTransferred: number | null;
+    totalRevenue: number | null;
     netBoxOfficeFundsDepositedAccount: string | null;
     hstCollectedFromTicketSales: number | null;
     hstPaidOnTourPayments: number | null;
@@ -353,6 +370,8 @@ export interface EngagementFinanceRow {
     finalRoyaltyAmount: number | null;
     finalOverageAmount: number | null;
     finalBuyoutAmount: number | null;
+    finalOtherAmount: number | null;
+    finalConcessionsAmount: number | null;
     finalDirectCompanyCharges: number | null;
     finalReimbursables: number | null;
 }
@@ -361,6 +380,7 @@ export interface FinanceMasterOption {
     label: string;
     withholdingTaxRate?: string | null;
     withholdingArea?: string | null;
+    areaCategory?: string | null;
     dmaid?: number | null;
     taxAgencyId?: number | null;
     withholdingAgencyName?: string | null;
@@ -497,6 +517,7 @@ export interface EngagementListFilters {
     status?: string;
     attractionName?: string;
     dmaMarketName?: string;
+    city?: string;
     venueLabel?: string;
     timing?: 'all' | 'upcoming' | 'past';
     mine?: boolean;
@@ -522,6 +543,7 @@ export declare class EngagementService {
     private readonly engagementFinancesRepo;
     private readonly engagementVenueRepo;
     private readonly engagementProductionRepo;
+    private readonly engagementRehearsalRepo;
     private readonly tourRepo;
     private readonly venueRepo;
     private readonly companyRepo;
@@ -542,7 +564,10 @@ export declare class EngagementService {
     private readonly engagementTravelRepo;
     private readonly engagementTravelCarServiceRepo;
     private readonly engagementTravelHotelRepo;
+    private readonly engagementBuyoutRepo;
     private readonly engagementLinkRepo;
+    private readonly equipmentRentalRepo;
+    private readonly equipmentRentalTypeRepo;
     private readonly emsCreated;
     private readonly dataSource;
     private readonly auditContext;
@@ -572,10 +597,11 @@ export declare class EngagementService {
     private engagementFinanceBookingColsPresent;
     private engagementFinanceContractLinkColsPresent;
     private engagementFinanceEventBusinessColsPresent;
-    constructor(engagementRepo: Repository<Engagement>, engagementFinancesRepo: Repository<EngagementFinances>, engagementVenueRepo: Repository<EngagementVenue>, engagementProductionRepo: Repository<EngagementProduction>, tourRepo: Repository<Tour>, venueRepo: Repository<Venue>, companyRepo: Repository<Company>, venueServiceProviderRepo: Repository<VenueServiceProvider>, companyServiceRepo: Repository<CompanyServiceEntity>, serviceProvidedRepo: Repository<ServiceProvided>, performanceRepo: Repository<Performance>, performanceTicketingRepo: Repository<PerformanceTicketing>, linkRepo: Repository<Link>, engagementIaeContactRepo: Repository<EngagementIAEContact>, contactRepo: Repository<Contact>, contactInfoRepo: Repository<ContactInfo>, roleRepo: Repository<Role>, departmentRepo: Repository<Department>, nonResidentWithholdingRepo: Repository<NonResidentWithholding>, artistFinanceRepo: Repository<ArtistFinance>, settlementFinanceRepo: Repository<SettlementFinance>, engagementTravelRepo: Repository<EngagementTravel>, engagementTravelCarServiceRepo: Repository<EngagementTravelCarService>, engagementTravelHotelRepo: Repository<EngagementTravelHotel>, engagementLinkRepo: Repository<EngagementLink>, emsCreated: EmsAppCreatedStore, dataSource: DataSource, auditContext: AuditRequestContext, documentLibrary: DocumentLibraryService);
+    constructor(engagementRepo: Repository<Engagement>, engagementFinancesRepo: Repository<EngagementFinances>, engagementVenueRepo: Repository<EngagementVenue>, engagementProductionRepo: Repository<EngagementProduction>, engagementRehearsalRepo: Repository<EngagementRehearsal>, tourRepo: Repository<Tour>, venueRepo: Repository<Venue>, companyRepo: Repository<Company>, venueServiceProviderRepo: Repository<VenueServiceProvider>, companyServiceRepo: Repository<CompanyServiceEntity>, serviceProvidedRepo: Repository<ServiceProvided>, performanceRepo: Repository<Performance>, performanceTicketingRepo: Repository<PerformanceTicketing>, linkRepo: Repository<Link>, engagementIaeContactRepo: Repository<EngagementIAEContact>, contactRepo: Repository<Contact>, contactInfoRepo: Repository<ContactInfo>, roleRepo: Repository<Role>, departmentRepo: Repository<Department>, nonResidentWithholdingRepo: Repository<NonResidentWithholding>, artistFinanceRepo: Repository<ArtistFinance>, settlementFinanceRepo: Repository<SettlementFinance>, engagementTravelRepo: Repository<EngagementTravel>, engagementTravelCarServiceRepo: Repository<EngagementTravelCarService>, engagementTravelHotelRepo: Repository<EngagementTravelHotel>, engagementBuyoutRepo: Repository<EngagementBuyout>, engagementLinkRepo: Repository<EngagementLink>, equipmentRentalRepo: Repository<EngagementProductionEquipmentRental>, equipmentRentalTypeRepo: Repository<EquipmentRentalType>, emsCreated: EmsAppCreatedStore, dataSource: DataSource, auditContext: AuditRequestContext, documentLibrary: DocumentLibraryService);
     private getPrimaryVenueCompanyIdForEngagement;
     private loadCompanyServices;
     private normalizeTime;
+    private timeToString;
     private assertPerformanceSlotAvailable;
     private assertVenueCompany;
     private assertEngagementExists;
@@ -642,8 +668,11 @@ export declare class EngagementService {
         withholdingArea?: string | null;
         withholdingTaxRate?: number | null;
         withholdingAgencyName?: string | null;
+        completedWaiverUrl?: string | null;
         iaeWaiverSubmissionDate?: string | null;
         iaeWaiverAppNumber?: string | null;
+        tourWaiverUrl?: string | null;
+        exceptionsNotes?: string | null;
     }): Promise<void>;
     private findNonResidentWithholdingByIdSafe;
     private assertNonResidentWithholdingExists;
@@ -683,6 +712,7 @@ export declare class EngagementService {
     filterOptions(): Promise<{
         attractionNames: string[];
         dmaMarketNames: string[];
+        cityNames: string[];
         venueLabels: string[];
     }>;
     getOne(id: number): Promise<EngagementListRow>;
@@ -804,7 +834,30 @@ export declare class EngagementService {
     private mergeSalesTaxFromVenue;
     upsertPerformanceTicketing(engagementId: number, performanceId: number, dto: UpdatePerformanceTicketingDto): Promise<void>;
     private tryPersistEngagementScaling;
+    private recomputeEngagementCapacitySums;
+    private assertSellableCapacityWithinVenueCapacity;
     private tryPersistSalesTaxToVenue;
+    private toRehearsalDto;
+    private normalizeRehearsalDate;
+    private normalizeRehearsalTime;
+    listRehearsals(engagementId: number): Promise<{
+        rehearsalId: number;
+        rehearsalDate: string;
+        rehearsalTime: string | null;
+    }[]>;
+    private assertRehearsalSlotAvailable;
+    createRehearsal(engagementId: number, dto: {
+        rehearsalDate: string;
+        rehearsalTime?: string | null;
+    }): Promise<{
+        rehearsalId: number;
+    }>;
+    private assertRehearsalForEngagement;
+    updateRehearsal(engagementId: number, rehearsalId: number, dto: {
+        rehearsalDate?: string;
+        rehearsalTime?: string | null;
+    }): Promise<void>;
+    deleteRehearsal(engagementId: number, rehearsalId: number): Promise<void>;
     createPerformance(engagementId: number, dto: CreatePerformanceDto): Promise<{
         performanceId: number;
     }>;
@@ -841,7 +894,58 @@ export declare class EngagementService {
         carServiceTravelId: number;
     }>;
     updateEngagementTravelCarService(engagementId: number, carServiceTravelId: number, dto: UpdateEngagementTravelCarServiceDto): Promise<void>;
+    private resolveOrCreateAddress;
     deleteEngagementTravel(engagementId: number, engagementTravelId: number): Promise<void>;
+    upsertTravelDrillBits(engagementId: number, travelTypes: {
+        travelType: string;
+        iaePays: boolean | null;
+        iaeArranges: boolean | null;
+        budgetAmount: number | null;
+    }[]): Promise<void>;
+    getEngagementBuyouts(engagementId: number): Promise<{
+        engagementBuyoutId: number;
+        buyoutDescription: string;
+        buyoutBudgetAmount: number | null;
+    }[]>;
+    upsertEngagementBuyouts(engagementId: number, items: {
+        engagementBuyoutId?: number;
+        buyoutDescription: string;
+        buyoutBudgetAmount: number | null;
+    }[]): Promise<void>;
+    listEquipmentRentalTypes(): Promise<{
+        equipmentRentalTypeId: number;
+        typeName: string;
+    }[]>;
+    getEquipmentRentals(engagementId: number): Promise<{
+        engagementProductionEquipmentRentalId: number;
+        equipmentRentalTypeId: number;
+        budgetAmount: number | null;
+        notes: string | null;
+        otherDescription: string | null;
+    }[]>;
+    upsertEquipmentRentals(engagementId: number, items: {
+        engagementProductionEquipmentRentalId?: number;
+        equipmentRentalTypeId: number;
+        budgetAmount: number | null;
+        notes?: string | null;
+        otherDescription?: string | null;
+    }[]): Promise<void>;
+    getProductionMisc(engagementId: number): Promise<{
+        runnerRequired: boolean | null;
+        cateringRequired: boolean | null;
+        cateringBudgetLineItem: string | null;
+        productionBuyoutRequired: boolean | null;
+        productionBuyoutDescription: string | null;
+        productionBuyoutBudgetAmount: number | null;
+    }>;
+    updateProductionMisc(engagementId: number, dto: {
+        runnerRequired: boolean | null;
+        cateringRequired: boolean | null;
+        cateringBudgetLineItem: string | null;
+        productionBuyoutRequired: boolean | null;
+        productionBuyoutDescription: string | null;
+        productionBuyoutBudgetAmount: number | null;
+    }): Promise<void>;
     getEngagementPartner(engagementId: number): Promise<{
         partnerCompanyId: number | null;
         partnerCompanyName: string | null;
@@ -861,6 +965,8 @@ export declare class EngagementService {
         depositDueDate?: string | null;
     }): Promise<void>;
     getPerformanceContracts(engagementId: number): Promise<Record<string, unknown>[]>;
+    private parseJsonArrayColumn;
+    private toJsonColumnValue;
     savePerformanceContract(engagementId: number, dto: import('./dto/save-performance-contract.dto').SavePerformanceContractDto): Promise<{
         contractId: number;
     }>;

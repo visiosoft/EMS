@@ -10,6 +10,7 @@ export type MyProfileResponse = {
     cellPhone: string;
     workPhone: string;
     departmentName: string;
+    departmentRank: string;
     roleNames: string[];
     jobTitle: string;
     jobTitleColumnAvailable: boolean;

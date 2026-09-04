@@ -33,7 +33,10 @@ temp
 vite.config.ts.timestamp-*.mjs
 
 # App-created ID tracking (no DB migration; local to environment)
+backend/data/
+backend/data/*
 backend/data/ems-app-created-ids.json
+backend/data/ai-settings.json
 
 # Local EMS reference (not committed; still present on disk for editors/agents)
 EMS_DATABASE_ARCHITECTURE.md

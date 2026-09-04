@@ -12,6 +12,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AdminUsersService = void 0;
 const common_1 = require("@nestjs/common");
 const audit_request_context_service_1 = require("../audit/audit-request-context.service");
+const admin_users_constants_1 = require("./admin-users.constants");
 const GRAPH_RAW_COLLECTION_PROPERTY_GROUPS = [
     {
         name: 'core',
@@ -209,13 +210,16 @@ let AdminUsersService = class AdminUsersService {
         const accessToken = await this.getGraphAccessToken(graphAccessToken);
         const users = [];
         for (const user of await this.fetchGraphUsers(accessToken)) {
-            users.push(this.buildUserDisplay(user));
+            if ((0, admin_users_constants_1.isIaeEntraCompany)(user.companyName)) {
+                users.push(this.buildUserDisplay(user));
+            }
         }
         return users.sort((left, right) => left.name.localeCompare(right.name));
     }
     async listUsersForSync(graphAccessToken) {
         const accessToken = await this.getGraphAccessToken(graphAccessToken);
         return (await this.fetchGraphUsers(accessToken))
+            .filter((user) => (0, admin_users_constants_1.isIaeEntraCompany)(user.companyName))
             .map((user) => this.buildUserForSync(user))
             .sort((left, right) => left.displayName.localeCompare(right.displayName));
     }

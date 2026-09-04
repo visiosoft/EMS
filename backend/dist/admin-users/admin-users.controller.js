@@ -21,6 +21,7 @@ const employee_experience_service_1 = require("./employee-experience.service");
 const employee_health_insurance_service_1 = require("./employee-health-insurance.service");
 const employee_profile_service_1 = require("./employee-profile.service");
 const entra_auth_guard_1 = require("./entra-auth.guard");
+const entra_profile_sync_service_1 = require("./entra-profile-sync.service");
 const internal_contact_sync_service_1 = require("./internal-contact-sync.service");
 const user_profile_service_1 = require("./user-profile.service");
 const access_level_service_1 = require("../common/access-level.service");
@@ -38,9 +39,10 @@ let AdminUsersController = class AdminUsersController {
     employeeExperienceService;
     employeeHealthInsuranceService;
     employeeProfileService;
+    entraProfileSyncService;
     internalContactSyncService;
     userProfileService;
-    constructor(accessLevelService, adminUsersService, auditContext, employeeCertificationsService, employeeEmploymentService, employeeExperienceService, employeeHealthInsuranceService, employeeProfileService, internalContactSyncService, userProfileService) {
+    constructor(accessLevelService, adminUsersService, auditContext, employeeCertificationsService, employeeEmploymentService, employeeExperienceService, employeeHealthInsuranceService, employeeProfileService, entraProfileSyncService, internalContactSyncService, userProfileService) {
         this.accessLevelService = accessLevelService;
         this.adminUsersService = adminUsersService;
         this.auditContext = auditContext;
@@ -49,6 +51,7 @@ let AdminUsersController = class AdminUsersController {
         this.employeeExperienceService = employeeExperienceService;
         this.employeeHealthInsuranceService = employeeHealthInsuranceService;
         this.employeeProfileService = employeeProfileService;
+        this.entraProfileSyncService = entraProfileSyncService;
         this.internalContactSyncService = internalContactSyncService;
         this.userProfileService = userProfileService;
     }
@@ -78,6 +81,12 @@ let AdminUsersController = class AdminUsersController {
     async getEmploymentProfile(email) {
         return this.employeeEmploymentService.getEmploymentProfile(email);
     }
+    async previewUserSyncFromEntra(email, graphAccessToken) {
+        return this.entraProfileSyncService.previewSingleUserFromEntra(email, graphAccessToken);
+    }
+    async applySelectedUserSync(email, body, graphAccessToken) {
+        return this.entraProfileSyncService.syncSelectedFieldsFromEntra(email, body.fields ?? [], graphAccessToken);
+    }
     async getAllAccessLevels() {
         return this.employeeEmploymentService.getAllAccessLevels();
     }
@@ -96,17 +105,20 @@ let AdminUsersController = class AdminUsersController {
     async updateHealthInsurance(email, dto) {
         return this.employeeHealthInsuranceService.updateHealthInsurance(email, dto);
     }
+    async bulkUpdateHealthInsurance(email, dto) {
+        return this.employeeHealthInsuranceService.bulkUpdateHealthInsurance(email, dto);
+    }
     async listWorkstations() {
         return this.employeeEmploymentService.listWorkstations();
     }
-    async listPhoneExtensions() {
-        return this.employeeEmploymentService.listPhoneExtensions();
+    async listPhoneExtensions(forEmail) {
+        return this.employeeEmploymentService.listPhoneExtensions(forEmail);
     }
-    async listPhoneDevices() {
-        return this.employeeEmploymentService.listPhoneDevices();
+    async listPhoneDevices(forEmail) {
+        return this.employeeEmploymentService.listPhoneDevices(forEmail);
     }
-    async listPcDevices() {
-        return this.employeeEmploymentService.listPcDevices();
+    async listPcDevices(forEmail) {
+        return this.employeeEmploymentService.listPcDevices(forEmail);
     }
     async getUserLicenses(email, graphAccessToken) {
         return this.adminUsersService.getUserLicenses(email, graphAccessToken);
@@ -131,6 +143,24 @@ let AdminUsersController = class AdminUsersController {
     }
     async applyInternalContactSync(dto, graphAccessToken) {
         return this.internalContactSyncService.applyInternalContactSync(dto, graphAccessToken);
+    }
+    async previewEntraToEmsProfileSync(graphAccessToken) {
+        return this.entraProfileSyncService.previewProfileSync(graphAccessToken);
+    }
+    async applyEntraToEmsProfileSync(graphAccessToken, targetEmail) {
+        return this.entraProfileSyncService.applyProfileSync(graphAccessToken, targetEmail);
+    }
+    async previewEmsToEntraProfileSync(graphAccessToken) {
+        return this.entraProfileSyncService.previewEmsToEntraProfileSync(graphAccessToken);
+    }
+    async applyEmsToEntraProfileSync(graphAccessToken, targetEmail) {
+        return this.entraProfileSyncService.applyEmsToEntraProfileSync(graphAccessToken, targetEmail);
+    }
+    async previewEntraProfileSync(graphAccessToken) {
+        return this.entraProfileSyncService.previewProfileSync(graphAccessToken);
+    }
+    async applyEntraProfileSync(graphAccessToken, targetEmail) {
+        return this.entraProfileSyncService.applyProfileSync(graphAccessToken, targetEmail);
     }
 };
 exports.AdminUsersController = AdminUsersController;
@@ -195,6 +225,25 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AdminUsersController.prototype, "getEmploymentProfile", null);
 __decorate([
+    (0, common_1.Post)('users/:email/sync-from-entra/preview'),
+    (0, common_1.UseGuards)(admin_or_self_guard_1.AdminOrSelfGuard),
+    __param(0, (0, common_1.Param)('email')),
+    __param(1, (0, common_1.Headers)('x-entra-graph-access-token')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", Promise)
+], AdminUsersController.prototype, "previewUserSyncFromEntra", null);
+__decorate([
+    (0, common_1.Post)('users/:email/sync-from-entra/apply-selected'),
+    (0, common_1.UseGuards)(admin_or_self_guard_1.AdminOrSelfGuard),
+    __param(0, (0, common_1.Param)('email')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, common_1.Headers)('x-entra-graph-access-token')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, String]),
+    __metadata("design:returntype", Promise)
+], AdminUsersController.prototype, "applySelectedUserSync", null);
+__decorate([
     (0, common_1.Get)('access-levels'),
     (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
     __metadata("design:type", Function),
@@ -244,6 +293,15 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AdminUsersController.prototype, "updateHealthInsurance", null);
 __decorate([
+    (0, common_1.Put)('users/:email/health-insurance'),
+    (0, common_1.UseGuards)(admin_or_self_guard_1.AdminOrSelfGuard),
+    __param(0, (0, common_1.Param)('email')),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, employee_health_insurance_service_1.BulkUpdateHealthInsuranceDto]),
+    __metadata("design:returntype", Promise)
+], AdminUsersController.prototype, "bulkUpdateHealthInsurance", null);
+__decorate([
     (0, common_1.Get)('workstations'),
     (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
     __metadata("design:type", Function),
@@ -252,23 +310,25 @@ __decorate([
 ], AdminUsersController.prototype, "listWorkstations", null);
 __decorate([
     (0, common_1.Get)('phone-extensions'),
-    (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
+    __param(0, (0, common_1.Query)('forEmail')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", []),
+    __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", Promise)
 ], AdminUsersController.prototype, "listPhoneExtensions", null);
 __decorate([
     (0, common_1.Get)('phone-devices'),
     (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
+    __param(0, (0, common_1.Query)('forEmail')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", []),
+    __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", Promise)
 ], AdminUsersController.prototype, "listPhoneDevices", null);
 __decorate([
     (0, common_1.Get)('pc-devices'),
     (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
+    __param(0, (0, common_1.Query)('forEmail')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", []),
+    __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", Promise)
 ], AdminUsersController.prototype, "listPcDevices", null);
 __decorate([
@@ -340,6 +400,57 @@ __decorate([
     __metadata("design:paramtypes", [Object, String]),
     __metadata("design:returntype", Promise)
 ], AdminUsersController.prototype, "applyInternalContactSync", null);
+__decorate([
+    (0, common_1.Post)('entra-profile-sync/entra-to-ems/preview'),
+    (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
+    __param(0, (0, common_1.Headers)('x-entra-graph-access-token')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], AdminUsersController.prototype, "previewEntraToEmsProfileSync", null);
+__decorate([
+    (0, common_1.Post)('entra-profile-sync/entra-to-ems/apply'),
+    (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
+    __param(0, (0, common_1.Headers)('x-entra-graph-access-token')),
+    __param(1, (0, common_1.Query)('email')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", Promise)
+], AdminUsersController.prototype, "applyEntraToEmsProfileSync", null);
+__decorate([
+    (0, common_1.Post)('entra-profile-sync/ems-to-entra/preview'),
+    (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
+    __param(0, (0, common_1.Headers)('x-entra-graph-access-token')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], AdminUsersController.prototype, "previewEmsToEntraProfileSync", null);
+__decorate([
+    (0, common_1.Post)('entra-profile-sync/ems-to-entra/apply'),
+    (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
+    __param(0, (0, common_1.Headers)('x-entra-graph-access-token')),
+    __param(1, (0, common_1.Query)('email')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", Promise)
+], AdminUsersController.prototype, "applyEmsToEntraProfileSync", null);
+__decorate([
+    (0, common_1.Post)('entra-profile-sync/preview'),
+    (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
+    __param(0, (0, common_1.Headers)('x-entra-graph-access-token')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], AdminUsersController.prototype, "previewEntraProfileSync", null);
+__decorate([
+    (0, common_1.Post)('entra-profile-sync/apply'),
+    (0, require_access_level_decorator_1.RequireAccessLevel)(access_level_enum_1.AccessLevel.Administrator),
+    __param(0, (0, common_1.Headers)('x-entra-graph-access-token')),
+    __param(1, (0, common_1.Query)('email')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", Promise)
+], AdminUsersController.prototype, "applyEntraProfileSync", null);
 exports.AdminUsersController = AdminUsersController = __decorate([
     (0, common_1.Controller)('admin'),
     (0, common_1.UseGuards)(entra_auth_guard_1.EntraAuthGuard, access_level_guard_1.AccessLevelGuard),
@@ -351,6 +462,7 @@ exports.AdminUsersController = AdminUsersController = __decorate([
         employee_experience_service_1.EmployeeExperienceService,
         employee_health_insurance_service_1.EmployeeHealthInsuranceService,
         employee_profile_service_1.EmployeeProfileService,
+        entra_profile_sync_service_1.EntraProfileSyncService,
         internal_contact_sync_service_1.InternalContactSyncService,
         user_profile_service_1.UserProfileService])
 ], AdminUsersController);

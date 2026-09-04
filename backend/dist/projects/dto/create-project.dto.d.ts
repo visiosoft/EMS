@@ -13,6 +13,7 @@ export declare class ProjectOpeningPerformanceDto {
 export declare class CreateProjectVenueDto {
     venueCompanyId: number;
     venueStatus: string;
+    offerCreationStatus?: string;
     performanceOptions?: CreatePerformanceOptionDto[];
     configName?: string | null;
     dealType?: string | null;
@@ -23,15 +24,14 @@ export declare class CreateProjectVenueDto {
 }
 export declare class CreateProjectDto {
     tourId: number;
-    projectStage: string;
-    offerReviewStatus?: string | null;
+    projectStage?: string;
     talentAgencyCompanyId: number;
     createdBy?: string | null;
     tourStartDate: string;
     tourEndDate: string;
     venues?: CreateProjectVenueDto[];
     dmaIds: number[];
-    openingPerformances?: ProjectOpeningPerformanceDto[];
+    talentAgentContactIds?: number[];
     name?: string | null;
     bookerId?: string | null;
     agentContactId?: string | null;

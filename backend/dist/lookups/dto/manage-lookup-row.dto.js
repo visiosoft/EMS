@@ -17,8 +17,11 @@ class CreateLookupRowDto {
     name;
     companyId;
     companyTypeId;
+    departmentId;
     serviceProvidedId;
     serviceProvidedIds;
+    roleId;
+    roleIds;
     postalCode;
 }
 exports.CreateLookupRowDto = CreateLookupRowDto;
@@ -55,6 +58,13 @@ __decorate([
     (0, class_validator_1.IsInt)(),
     (0, class_validator_1.Min)(1),
     __metadata("design:type", Number)
+], CreateLookupRowDto.prototype, "departmentId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    __metadata("design:type", Number)
 ], CreateLookupRowDto.prototype, "serviceProvidedId", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
@@ -67,6 +77,22 @@ __decorate([
 ], CreateLookupRowDto.prototype, "serviceProvidedIds", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    __metadata("design:type", Number)
+], CreateLookupRowDto.prototype, "roleId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ArrayUnique)(),
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)({ each: true }),
+    (0, class_validator_1.Min)(1, { each: true }),
+    __metadata("design:type", Array)
+], CreateLookupRowDto.prototype, "roleIds", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.MaxLength)(20),
     __metadata("design:type", String)
@@ -75,8 +101,11 @@ class UpdateLookupRowDto {
     name;
     companyId;
     companyTypeId;
+    departmentId;
     serviceProvidedId;
     serviceProvidedIds;
+    roleId;
+    roleIds;
     postalCode;
 }
 exports.UpdateLookupRowDto = UpdateLookupRowDto;
@@ -106,6 +135,13 @@ __decorate([
     (0, class_validator_1.IsInt)(),
     (0, class_validator_1.Min)(1),
     __metadata("design:type", Number)
+], UpdateLookupRowDto.prototype, "departmentId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    __metadata("design:type", Number)
 ], UpdateLookupRowDto.prototype, "serviceProvidedId", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
@@ -116,6 +152,22 @@ __decorate([
     (0, class_validator_1.Min)(1, { each: true }),
     __metadata("design:type", Array)
 ], UpdateLookupRowDto.prototype, "serviceProvidedIds", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    __metadata("design:type", Number)
+], UpdateLookupRowDto.prototype, "roleId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ArrayUnique)(),
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)({ each: true }),
+    (0, class_validator_1.Min)(1, { each: true }),
+    __metadata("design:type", Array)
+], UpdateLookupRowDto.prototype, "roleIds", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),

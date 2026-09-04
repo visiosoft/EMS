@@ -216,7 +216,7 @@ let LearningService = class LearningService {
         idx++;
         params.push(id);
         if (sets.length > 2) {
-            await this.dataSource.query(`UPDATE dbo.LearningCertification SET ${sets.join(', ')} WHERE CertificationID = @${idx - 1}`, params);
+            await this.dataSource.query(`UPDATE dbo.LearningCertification SET ${sets.join(', ')} WHERE CertificationID = @${idx}`, params);
         }
         if (dto.tags !== undefined) {
             await this.dataSource.query(`DELETE FROM dbo.LearningCertificationTag WHERE CertificationID = @0`, [id]);
@@ -248,6 +248,24 @@ let LearningService = class LearningService {
             JSON.stringify({ newStatus }),
         ]);
         return { certificationId: id, status: newStatus };
+    }
+    async deleteCertification(id) {
+        const userDisplayName = this.auditContext.getUserDisplayName() || 'System';
+        const userId = this.auditContext.getUserOid() || userDisplayName;
+        const rows = await this.dataSource.query(`SELECT CertificationID, Title FROM dbo.LearningCertification WHERE CertificationID = @0`, [id]);
+        if (rows.length === 0)
+            throw new common_1.NotFoundException('Certification not found');
+        const certTitle = rows[0].Title;
+        const submissionRows = await this.dataSource.query(`SELECT SubmissionID FROM dbo.LearningSubmission WHERE CertificationID = @0`, [id]);
+        for (const sub of submissionRows) {
+            await this.deleteSubmission(sub.SubmissionID);
+        }
+        await this.dataSource.query(`DELETE FROM dbo.LearningCertificationTag WHERE CertificationID = @0`, [id]);
+        await this.dataSource.query(`DELETE FROM dbo.LearningProgress WHERE CertificationID = @0`, [id]);
+        await this.dataSource.query(`DELETE FROM dbo.LearningCertification WHERE CertificationID = @0`, [id]);
+        await this.dataSource.query(`INSERT INTO dbo.LearningAuditLog (ActionType, EntityType, EntityID, PerformedBy, Details)
+       VALUES ('CERT_DELETED', 'Certification', @0, @1, @2)`, [id, userId, JSON.stringify({ title: certTitle })]);
+        return { certificationId: id, deleted: true };
     }
     async getSubmissions(departmentId, contactId, status, search) {
         let where = 'WHERE 1=1';
@@ -481,6 +499,61 @@ let LearningService = class LearningService {
             JSON.stringify({ pointsAwarded: pointsToAward, adminNotes: dto.adminNotes }),
         ]);
         return this.getSubmissionById(id);
+    }
+    async deleteSubmission(id) {
+        const userDisplayName = this.auditContext.getUserDisplayName() || 'System';
+        const userId = this.auditContext.getUserOid() || userDisplayName;
+        const rows = await this.dataSource.query(`SELECT s.SubmissionID, s.ContactID, s.DepartmentID, s.CertificationID,
+              s.Status, s.PointsAwarded, s.CertificationName,
+              ci.FirstName + ' ' + ci.LastName AS EmployeeName
+       FROM dbo.LearningSubmission s
+       LEFT JOIN dbo.Contact ct ON ct.ContactID = s.ContactID
+       LEFT JOIN dbo.ContactInfo ci ON ci.ContactInfoID = ct.ContactInfoID
+       WHERE s.SubmissionID = @0`, [id]);
+        if (rows.length === 0)
+            throw new common_1.NotFoundException('Submission not found');
+        const submission = rows[0];
+        const wasVerified = submission.Status === 'VERIFIED';
+        const pointsToRemove = wasVerified ? (submission.PointsAwarded || 0) : 0;
+        if (wasVerified) {
+            await this.dataSource.query(`UPDATE dbo.LearningEmployeeScore
+         SET TotalPoints = CASE WHEN TotalPoints - @0 < 0 THEN 0 ELSE TotalPoints - @0 END,
+             CertsApproved = CASE WHEN CertsApproved - 1 < 0 THEN 0 ELSE CertsApproved - 1 END,
+             CertsSubmitted = CASE WHEN CertsSubmitted - 1 < 0 THEN 0 ELSE CertsSubmitted - 1 END,
+             UpdatedAt = GETUTCDATE(),
+             CurrentTier = CASE
+               WHEN CASE WHEN TotalPoints - @0 < 0 THEN 0 ELSE TotalPoints - @0 END >= 600 THEN 'Platinum'
+               WHEN CASE WHEN TotalPoints - @0 < 0 THEN 0 ELSE TotalPoints - @0 END >= 400 THEN 'Gold'
+               WHEN CASE WHEN TotalPoints - @0 < 0 THEN 0 ELSE TotalPoints - @0 END >= 200 THEN 'Silver'
+               WHEN CASE WHEN TotalPoints - @0 < 0 THEN 0 ELSE TotalPoints - @0 END >= 100 THEN 'Bronze'
+               ELSE 'Unranked'
+             END
+         WHERE ContactID = @1 AND DepartmentID = @2`, [pointsToRemove, submission.ContactID, submission.DepartmentID]);
+            if (submission.CertificationID) {
+                await this.dataSource.query(`DELETE FROM dbo.LearningProgress WHERE ContactID = @0 AND CertificationID = @1`, [submission.ContactID, submission.CertificationID]);
+            }
+        }
+        else {
+            await this.dataSource.query(`UPDATE dbo.LearningEmployeeScore
+         SET CertsSubmitted = CASE WHEN CertsSubmitted - 1 < 0 THEN 0 ELSE CertsSubmitted - 1 END,
+             UpdatedAt = GETUTCDATE()
+         WHERE ContactID = @0 AND DepartmentID = @1`, [submission.ContactID, submission.DepartmentID]);
+        }
+        await this.dataSource.query(`DELETE FROM dbo.LearningSubmissionDocument WHERE SubmissionID = @0`, [id]);
+        await this.dataSource.query(`DELETE FROM dbo.LearningSubmission WHERE SubmissionID = @0`, [id]);
+        await this.dataSource.query(`INSERT INTO dbo.LearningAuditLog (ActionType, EntityType, EntityID, PerformedBy, Details)
+       VALUES ('SUBMISSION_REMOVED', 'Submission', @0, @1, @2)`, [
+            id,
+            userId,
+            JSON.stringify({
+                certificationName: submission.CertificationName,
+                employeeName: submission.EmployeeName,
+                contactId: submission.ContactID,
+                previousStatus: submission.Status,
+                pointsRemoved: pointsToRemove,
+            }),
+        ]);
+        return { submissionId: id, deleted: true };
     }
     async getEmployeeScores(departmentId) {
         let where = '';

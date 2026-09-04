@@ -12,37 +12,21 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.UpdateProjectDto = void 0;
 const class_validator_1 = require("class-validator");
 const class_transformer_1 = require("class-transformer");
-const project_stage_constants_1 = require("../project-stage.constants");
-const create_project_dto_1 = require("./create-project.dto");
 class UpdateProjectDto {
-    projectStage;
-    offerReviewStatus;
     createdBy;
     tourStartDate;
     tourEndDate;
     tourId;
     talentAgencyCompanyId;
+    talentAgentContactIds;
     name;
     bookerId;
     agentContactId;
     dmaIds;
-    openingPerformances;
     targetOnSale;
     notes;
 }
 exports.UpdateProjectDto = UpdateProjectDto;
-__decorate([
-    (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsString)(),
-    (0, class_validator_1.IsIn)([...project_stage_constants_1.PROJECT_STAGE_VALUES]),
-    __metadata("design:type", String)
-], UpdateProjectDto.prototype, "projectStage", void 0);
-__decorate([
-    (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsString)(),
-    (0, class_validator_1.IsIn)([...project_stage_constants_1.OFFER_REVIEW_STATUS_VALUES]),
-    __metadata("design:type", Object)
-], UpdateProjectDto.prototype, "offerReviewStatus", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
@@ -75,6 +59,14 @@ __decorate([
 ], UpdateProjectDto.prototype, "talentAgencyCompanyId", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsArray)(),
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)({ each: true }),
+    (0, class_validator_1.Min)(1, { each: true }),
+    __metadata("design:type", Array)
+], UpdateProjectDto.prototype, "talentAgentContactIds", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
     __metadata("design:type", Object)
 ], UpdateProjectDto.prototype, "name", void 0);
 __decorate([
@@ -93,13 +85,6 @@ __decorate([
     (0, class_validator_1.Min)(1, { each: true }),
     __metadata("design:type", Array)
 ], UpdateProjectDto.prototype, "dmaIds", void 0);
-__decorate([
-    (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsArray)(),
-    (0, class_validator_1.ValidateNested)({ each: true }),
-    (0, class_transformer_1.Type)(() => create_project_dto_1.ProjectOpeningPerformanceDto),
-    __metadata("design:type", Array)
-], UpdateProjectDto.prototype, "openingPerformances", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     __metadata("design:type", Object)

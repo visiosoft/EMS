@@ -29,6 +29,7 @@ import { OrganizationChartModule } from './organization-chart/organization-chart
 import { RampModule } from './ramp/ramp.module';
 import { LearningModule } from './learning/learning.module';
 import { CommonModule } from './common/common.module';
+import { AiModule } from './ai/ai.module';
 
 const parseBoolean = (
   value: string | undefined,
@@ -128,6 +129,7 @@ const parseNumber = (value: string | undefined, fallback: number): number => {
     OrganizationChartModule,
     RampModule,
     LearningModule,
+    AiModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuditSubscriber],

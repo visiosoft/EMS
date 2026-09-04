@@ -17,6 +17,7 @@ const common_1 = require("@nestjs/common");
 const platform_express_1 = require("@nestjs/platform-express");
 const fs_1 = require("fs");
 const confirmed_offer_multer_config_1 = require("./confirmed-offer-multer.config");
+const offer_link_multer_config_1 = require("./offer-link-multer.config");
 const add_performance_option_dto_1 = require("./dto/add-performance-option.dto");
 const add_project_venue_dto_1 = require("./dto/add-project-venue.dto");
 const create_project_dto_1 = require("./dto/create-project.dto");
@@ -74,14 +75,44 @@ let ProjectController = class ProjectController {
     removePerformanceOption(id, optionId) {
         return this.projectService.removePerformanceOption(id, optionId);
     }
-    uploadConfirmedOfferPdf(id, file) {
+    uploadConfirmedOfferPdf(id, venueId, file) {
         if (!file) {
             throw new common_1.BadRequestException('No file was provided.');
         }
-        return this.projectService.uploadConfirmedOfferPdf(id, file);
+        return this.projectService.uploadConfirmedOfferPdf(id, venueId, file);
     }
-    async downloadConfirmedOfferPdf(id, res) {
-        const { filePath, linkName } = await this.projectService.getConfirmedOfferPdfPath(id);
+    async downloadConfirmedOfferPdf(id, venueId, res) {
+        const { filePath, linkName } = await this.projectService.getConfirmedOfferPdfPath(id, venueId);
+        res.set({
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `inline; filename="${encodeURIComponent(linkName)}"`,
+        });
+        const stream = (0, fs_1.createReadStream)(filePath);
+        return new common_1.StreamableFile(stream);
+    }
+    uploadDraftedOfferLink(id, venueId, file) {
+        if (!file) {
+            throw new common_1.BadRequestException('No file was provided.');
+        }
+        return this.projectService.uploadDraftedOfferLink(id, venueId, file);
+    }
+    async downloadDraftedOfferLink(id, venueId, res) {
+        const { filePath, linkName } = await this.projectService.getDraftedOfferLinkPath(id, venueId);
+        res.set({
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `inline; filename="${encodeURIComponent(linkName)}"`,
+        });
+        const stream = (0, fs_1.createReadStream)(filePath);
+        return new common_1.StreamableFile(stream);
+    }
+    uploadInConsiderationOfferLink(id, venueId, file) {
+        if (!file) {
+            throw new common_1.BadRequestException('No file was provided.');
+        }
+        return this.projectService.uploadInConsiderationOfferLink(id, venueId, file);
+    }
+    async downloadInConsiderationOfferLink(id, venueId, res) {
+        const { filePath, linkName } = await this.projectService.getInConsiderationOfferLinkPath(id, venueId);
         res.set({
             'Content-Type': 'application/pdf',
             'Content-Disposition': `inline; filename="${encodeURIComponent(linkName)}"`,
@@ -169,7 +200,6 @@ __decorate([
 ], ProjectController.prototype, "addVenue", null);
 __decorate([
     (0, common_1.Patch)(':id/venues/:venueId'),
-    (0, common_1.HttpCode)(common_1.HttpStatus.NO_CONTENT),
     __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
     __param(1, (0, common_1.Param)('venueId', common_1.ParseIntPipe)),
     __param(2, (0, common_1.Body)()),
@@ -215,22 +245,62 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], ProjectController.prototype, "removePerformanceOption", null);
 __decorate([
-    (0, common_1.Post)(':id/confirmed-offer-pdf'),
+    (0, common_1.Post)(':id/venues/:venueId/confirmed-offer-pdf'),
     (0, common_1.UseInterceptors)((0, platform_express_1.FileInterceptor)('file', (0, confirmed_offer_multer_config_1.confirmedOfferMulterOptions)())),
     __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
-    __param(1, (0, common_1.UploadedFile)()),
+    __param(1, (0, common_1.Param)('venueId', common_1.ParseIntPipe)),
+    __param(2, (0, common_1.UploadedFile)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Number, Object]),
+    __metadata("design:paramtypes", [Number, Number, Object]),
     __metadata("design:returntype", void 0)
 ], ProjectController.prototype, "uploadConfirmedOfferPdf", null);
 __decorate([
-    (0, common_1.Get)(':id/confirmed-offer-pdf'),
+    (0, common_1.Get)(':id/venues/:venueId/confirmed-offer-pdf'),
     __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
-    __param(1, (0, common_1.Res)({ passthrough: true })),
+    __param(1, (0, common_1.Param)('venueId', common_1.ParseIntPipe)),
+    __param(2, (0, common_1.Res)({ passthrough: true })),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Number, Object]),
+    __metadata("design:paramtypes", [Number, Number, Object]),
     __metadata("design:returntype", Promise)
 ], ProjectController.prototype, "downloadConfirmedOfferPdf", null);
+__decorate([
+    (0, common_1.Post)(':id/venues/:venueId/drafted-offer-link'),
+    (0, common_1.UseInterceptors)((0, platform_express_1.FileInterceptor)('file', (0, offer_link_multer_config_1.draftedOfferMulterOptions)())),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __param(1, (0, common_1.Param)('venueId', common_1.ParseIntPipe)),
+    __param(2, (0, common_1.UploadedFile)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, Number, Object]),
+    __metadata("design:returntype", void 0)
+], ProjectController.prototype, "uploadDraftedOfferLink", null);
+__decorate([
+    (0, common_1.Get)(':id/venues/:venueId/drafted-offer-link'),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __param(1, (0, common_1.Param)('venueId', common_1.ParseIntPipe)),
+    __param(2, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, Number, Object]),
+    __metadata("design:returntype", Promise)
+], ProjectController.prototype, "downloadDraftedOfferLink", null);
+__decorate([
+    (0, common_1.Post)(':id/venues/:venueId/in-consideration-offer-link'),
+    (0, common_1.UseInterceptors)((0, platform_express_1.FileInterceptor)('file', (0, offer_link_multer_config_1.inConsiderationOfferMulterOptions)())),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __param(1, (0, common_1.Param)('venueId', common_1.ParseIntPipe)),
+    __param(2, (0, common_1.UploadedFile)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, Number, Object]),
+    __metadata("design:returntype", void 0)
+], ProjectController.prototype, "uploadInConsiderationOfferLink", null);
+__decorate([
+    (0, common_1.Get)(':id/venues/:venueId/in-consideration-offer-link'),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __param(1, (0, common_1.Param)('venueId', common_1.ParseIntPipe)),
+    __param(2, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, Number, Object]),
+    __metadata("design:returntype", Promise)
+], ProjectController.prototype, "downloadInConsiderationOfferLink", null);
 exports.ProjectController = ProjectController = __decorate([
     (0, common_1.Controller)('projects'),
     __metadata("design:paramtypes", [project_service_1.ProjectService])

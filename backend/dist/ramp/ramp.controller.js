@@ -278,6 +278,21 @@ let RampController = class RampController {
     getEngagementAccounting(engagementId) {
         return this.rampService.getEngagementAccountingContext(engagementId);
     }
+    getEngagementGlAccounts(engagementId) {
+        return this.rampService.getEngagementGlAccounts(engagementId);
+    }
+    getEngagementCustomerJobOptions(engagementId) {
+        return this.rampService.getEngagementCustomerJobOptions(engagementId);
+    }
+    getEngagementAccountingVendors(engagementId) {
+        return this.rampService.getEngagementAccountingVendors(engagementId);
+    }
+    getEngagementMemos(engagementId, pageSize, start) {
+        return this.rampService.getEngagementMemos(engagementId, {
+            page_size: pageSize ? Number(pageSize) : undefined,
+            start: start || undefined,
+        });
+    }
 };
 exports.RampController = RampController;
 __decorate([
@@ -594,6 +609,36 @@ __decorate([
     __metadata("design:paramtypes", [Number]),
     __metadata("design:returntype", void 0)
 ], RampController.prototype, "getEngagementAccounting", null);
+__decorate([
+    (0, common_1.Get)('engagement/:engagementId/gl-accounts'),
+    __param(0, (0, common_1.Param)('engagementId', common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number]),
+    __metadata("design:returntype", void 0)
+], RampController.prototype, "getEngagementGlAccounts", null);
+__decorate([
+    (0, common_1.Get)('engagement/:engagementId/customer-job-options'),
+    __param(0, (0, common_1.Param)('engagementId', common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number]),
+    __metadata("design:returntype", void 0)
+], RampController.prototype, "getEngagementCustomerJobOptions", null);
+__decorate([
+    (0, common_1.Get)('engagement/:engagementId/accounting-vendors'),
+    __param(0, (0, common_1.Param)('engagementId', common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number]),
+    __metadata("design:returntype", void 0)
+], RampController.prototype, "getEngagementAccountingVendors", null);
+__decorate([
+    (0, common_1.Get)('engagement/:engagementId/memos'),
+    __param(0, (0, common_1.Param)('engagementId', common_1.ParseIntPipe)),
+    __param(1, (0, common_1.Query)('page_size')),
+    __param(2, (0, common_1.Query)('start')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, String, String]),
+    __metadata("design:returntype", void 0)
+], RampController.prototype, "getEngagementMemos", null);
 exports.RampController = RampController = __decorate([
     (0, common_1.Controller)('ramp'),
     __metadata("design:paramtypes", [ramp_service_1.RampService])

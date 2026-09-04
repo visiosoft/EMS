@@ -30,20 +30,20 @@ let HubSpotSignatureService = HubSpotSignatureService_1 = class HubSpotSignature
             return false;
         }
         try {
-            let sourceString;
+            let hash;
             if (signatureVersion === 'v2') {
-                sourceString =
-                    clientSecret +
-                        (httpMethod || 'POST') +
-                        (requestUrl || '') +
-                        requestBody;
+                const sourceString = (httpMethod || 'POST') +
+                    (requestUrl || '') +
+                    requestBody;
+                hash = (0, crypto_1.createHmac)('sha256', clientSecret)
+                    .update(sourceString)
+                    .digest('hex');
             }
             else {
-                sourceString = clientSecret + requestBody;
+                hash = (0, crypto_1.createHash)('sha256')
+                    .update(clientSecret + requestBody)
+                    .digest('hex');
             }
-            const hash = (0, crypto_1.createHmac)('sha256', clientSecret)
-                .update(sourceString)
-                .digest('hex');
             const expected = Buffer.from(hash, 'utf8');
             const received = Buffer.from(signatureHeader, 'utf8');
             if (expected.length !== received.length) {

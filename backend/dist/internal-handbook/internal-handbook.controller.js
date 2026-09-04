@@ -32,6 +32,17 @@ let InternalHandbookController = class InternalHandbookController {
         }
         return this.internalHandbookService.findSectionBySectionId(sectionId);
     }
+    async getImage(sectionContentId, index, res) {
+        const image = await this.internalHandbookService.getImage(sectionContentId, index);
+        if (!image) {
+            throw new common_1.NotFoundException('Handbook image not found.');
+        }
+        res.set({
+            'Content-Type': image.mimeType,
+            'Cache-Control': 'private, max-age=86400',
+        });
+        res.send(image.buffer);
+    }
 };
 exports.InternalHandbookController = InternalHandbookController;
 __decorate([
@@ -47,6 +58,15 @@ __decorate([
     __metadata("design:paramtypes", [section_query_dto_1.SectionQueryDto]),
     __metadata("design:returntype", void 0)
 ], InternalHandbookController.prototype, "findSection", null);
+__decorate([
+    (0, common_1.Get)('image/:sectionContentId/:index'),
+    __param(0, (0, common_1.Param)('sectionContentId', common_1.ParseIntPipe)),
+    __param(1, (0, common_1.Param)('index', common_1.ParseIntPipe)),
+    __param(2, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, Number, Object]),
+    __metadata("design:returntype", Promise)
+], InternalHandbookController.prototype, "getImage", null);
 exports.InternalHandbookController = InternalHandbookController = __decorate([
     (0, common_1.UseGuards)(internal_access_guard_1.InternalAccessGuard),
     (0, common_1.Controller)('internal/handbook'),

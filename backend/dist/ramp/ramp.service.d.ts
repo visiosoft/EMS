@@ -71,6 +71,13 @@ export interface RampTransaction {
     }>;
     policy_violations?: Array<Record<string, unknown>>;
     disputes?: Array<Record<string, unknown>>;
+    accounting_categories?: Array<{
+        tracking_category_remote_id?: string | null;
+        category_id?: string | null;
+        tracking_category_remote_type?: string | null;
+        tracking_category_remote_name?: string | null;
+        category_name?: string | null;
+    }>;
 }
 export interface RampTransactionAccountingFieldSelection {
     id: string;
@@ -165,6 +172,7 @@ export interface RampBillAccountingFieldSelection {
     external_code?: string | null;
     display_name?: string | null;
     provider_name?: string | null;
+    type?: string | null;
     category_info?: {
         id: string;
         name: string;
@@ -614,6 +622,13 @@ export declare class RampService {
         merchant_name: string | null;
         amount: number | null;
     }>>;
+    getEngagementMemos(engagementId: number, params?: {
+        page_size?: number;
+        start?: string;
+    }): Promise<RampPagedResponse<RampMemo & {
+        transaction_amount: number | null;
+        merchant_name: string | null;
+    }>>;
     getEngagementAccountingContext(engagementId: number): Promise<{
         mapping: {
             customerJobFieldOptionId: string | null;
@@ -624,10 +639,19 @@ export declare class RampService {
         };
         matchedFields: RampAccountingField[];
         matchedOptions: RampAccountingFieldOption[];
-        glAccounts: RampGlAccount[];
-        accountingVendors: RampAccountingVendor[];
         allFields: RampAccountingField[];
-        customerJobOptions: RampAccountingFieldOption[];
+        customerJobOptionsCount: number;
+    }>;
+    getEngagementCustomerJobOptions(engagementId: number): Promise<{
+        fieldName: string | null;
+        options: RampAccountingFieldOption[];
+    }>;
+    getEngagementGlAccounts(engagementId: number): Promise<{
+        glAccounts: RampGlAccount[];
+        glAccountAmounts: Record<string, number>;
+    }>;
+    getEngagementAccountingVendors(engagementId: number): Promise<{
+        accountingVendors: RampAccountingVendor[];
     }>;
     getEngagementVendors(engagementId: number, params?: {
         name?: string;

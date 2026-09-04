@@ -13,9 +13,11 @@ exports.AddProjectVenueDto = void 0;
 const class_validator_1 = require("class-validator");
 const class_transformer_1 = require("class-transformer");
 const create_project_dto_1 = require("./create-project.dto");
+const project_stage_constants_1 = require("../project-stage.constants");
 class AddProjectVenueDto {
     venueCompanyId;
     venueStatus;
+    offerCreationStatus;
     performanceOptions;
     configName;
     dealType;
@@ -36,6 +38,12 @@ __decorate([
     (0, class_validator_1.MaxLength)(50),
     __metadata("design:type", String)
 ], AddProjectVenueDto.prototype, "venueStatus", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsIn)([...project_stage_constants_1.PROJECT_STAGE_VALUES]),
+    __metadata("design:type", String)
+], AddProjectVenueDto.prototype, "offerCreationStatus", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsArray)(),

@@ -28,7 +28,7 @@ __decorate([
     __metadata("design:type", company_entity_1.Company)
 ], VenueComplex.prototype, "company", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'ComplexName', type: 'nvarchar', length: 200 }),
+    (0, typeorm_1.Column)({ name: 'ComplexName', type: 'nvarchar', length: 1000 }),
     __metadata("design:type", String)
 ], VenueComplex.prototype, "complexName", void 0);
 exports.VenueComplex = VenueComplex = __decorate([

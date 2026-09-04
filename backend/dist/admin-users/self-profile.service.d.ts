@@ -1,9 +1,11 @@
 import { DataSource } from 'typeorm';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
 import { AdminUsersService } from './admin-users.service';
+import { EntraProfileSyncService } from './entra-profile-sync.service';
 import { EmployeeExperienceService, type EmployeeExperienceResponse } from './employee-experience.service';
 import { EmployeeHealthInsuranceService, type EmployeeHealthInsuranceResponse } from './employee-health-insurance.service';
 import { EmployeeCertificationsService, type EmployeeCertificationResponse } from './employee-certifications.service';
+import type { UpdateMyProfileDto } from './self-profile.controller';
 type ProfileAddress = {
     line1: string;
     line2: string;
@@ -24,6 +26,7 @@ export type MyFullProfileResponse = {
 } | {
     linked: true;
     visibility: 'full' | 'limited';
+    isAdmin: boolean;
     identity: {
         contactId: number;
         contactInfoId: number;
@@ -38,6 +41,7 @@ export type MyFullProfileResponse = {
         cellPhone: string;
         workPhone: string;
         department: string;
+        department2: string;
         role: string;
         company: string;
     };
@@ -56,6 +60,7 @@ export type MyFullProfileResponse = {
         office: string;
         accessLevel: string;
         workAuthorization: string;
+        workAuthorizationLinkUrl: string;
         startDate: string | null;
         yearsOfService: string;
         hireDate: string | null;
@@ -70,6 +75,7 @@ export type MyFullProfileResponse = {
         rampAccount: string;
         rampCreditCard: string;
         workstation: string;
+        departmentRank: string;
     };
     officeAddress: ProfileAddress | null;
     equipment: {
@@ -83,6 +89,9 @@ export type MyFullProfileResponse = {
         pcServiceTag: string;
         bluetoothStatus: string;
         pcWindowsName: string;
+        currentExtensionId: number | null;
+        currentPhoneId: number | null;
+        currentComputerId: number | null;
     };
     entra: {
         microsoftOfficeLicenses: string[];
@@ -92,6 +101,11 @@ export type MyFullProfileResponse = {
     experience: EmployeeExperienceResponse | null;
     certifications: EmployeeCertificationResponse | null;
 };
+export type ProfileUpdateResult = {
+    success: true;
+    entraSyncWarningCode?: 'permissionRestricted' | 'syncFailed';
+    entraSyncWarning?: string;
+};
 export declare class SelfProfileService {
     private readonly dataSource;
     private readonly auditContext;
@@ -99,11 +113,22 @@ export declare class SelfProfileService {
     private readonly experienceService;
     private readonly certificationsService;
     private readonly adminUsersService;
-    constructor(dataSource: DataSource, auditContext: AuditRequestContext, healthInsuranceService: EmployeeHealthInsuranceService, experienceService: EmployeeExperienceService, certificationsService: EmployeeCertificationsService, adminUsersService: AdminUsersService);
+    private readonly entraProfileSyncService;
+    constructor(dataSource: DataSource, auditContext: AuditRequestContext, healthInsuranceService: EmployeeHealthInsuranceService, experienceService: EmployeeExperienceService, certificationsService: EmployeeCertificationsService, adminUsersService: AdminUsersService, entraProfileSyncService: EntraProfileSyncService);
     getMyFullProfile(): Promise<MyFullProfileResponse>;
+    getSignedInEmail(): string;
+    isSignedInUserAdmin(): Promise<boolean>;
+    updateMyProfile(dto: UpdateMyProfileDto): Promise<ProfileUpdateResult>;
+    updateEmployeeProfile(targetContactId: number, dto: UpdateMyProfileDto): Promise<ProfileUpdateResult>;
+    private applyProfileUpdate;
+    private isEntraPermissionRestrictedMessage;
+    private formatEntraSyncReason;
+    private upsertHomeAddress;
+    private replaceEmergencyContacts;
     getEmployeeProfileForViewer(targetContactId: number): Promise<MyFullProfileResponse>;
     private buildFullProfile;
     private applyVisibility;
+    private stripAdminOnlyFields;
     private isAccessLevelAdmin;
     private safe;
     private loadEntraJobInfo;
@@ -115,5 +140,8 @@ export declare class SelfProfileService {
     private loadEmergencyContacts;
     private loadEquipment;
     private tableExists;
+    private hasColumn;
+    private getWorkAuthorizationLinkColumn;
+    private upsertWorkAuthLink;
 }
 export {};

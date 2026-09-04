@@ -9,6 +9,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { AiSettingsPanel } from '@/components/ai/AiSettingsPanel';
 import {
   ActionMenu,
   Avatar,
@@ -279,9 +280,9 @@ function renderLookupCell(row: LookupManageRow, field: string) {
     const names = Array.isArray(row[field])
       ? (row[field] as string[]).map((v) => String(v ?? '').trim()).filter(Boolean)
       : String(row[field === 'serviceNames' ? 'serviceName' : 'roleName'] ?? '')
-          .split(',')
-          .map((v) => v.trim())
-          .filter(Boolean);
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean);
     if (names.length === 0) return <span className="text-text-muted">—</span>;
     return (
       <div className="flex flex-wrap gap-1.5">
@@ -555,8 +556,8 @@ function SyncPreviewModal({
 
   const handleApplyClick = () => {
     const selectedRowsWithDeps = preview ? preview.rows.filter(
-      r => selectedActionIds.has(r.actionId) && 
-           r.dependencies && r.dependencies.length > 0
+      r => selectedActionIds.has(r.actionId) &&
+        r.dependencies && r.dependencies.length > 0
     ) : [];
 
     let html = `You are about to apply <b>${applyCount}</b> selected action${applyCount !== 1 ? 's' : ''}.<br/>Are you sure you want to proceed?`;
@@ -564,7 +565,7 @@ function SyncPreviewModal({
     if (selectedRowsWithDeps.length > 0) {
       const depList = selectedRowsWithDeps.slice(0, 5).map(r => `<li><b>${syncRowPrimaryName(r)}</b> (${r.dependencies!.join(', ')})</li>`).join('');
       const more = selectedRowsWithDeps.length > 5 ? `<li>...and ${selectedRowsWithDeps.length - 5} more</li>` : '';
-      
+
       html += `<br/><br/><div class="text-left text-ems-coral bg-ems-coral/10 p-3 rounded-md border border-ems-coral/20">
         <p class="font-semibold mb-1">Warning: Linked Records Will Be Deleted</p>
         <p class="mb-2 text-xs">The following contacts have connected system records that will be <b>permanently deleted</b> because their assignments are being removed or reduced:</p>
@@ -603,16 +604,16 @@ function SyncPreviewModal({
 
   const countItems: Array<[string, number]> = preview
     ? [
-        ['Updates', preview.counts.update],
-        ['Creates', preview.counts.create],
-        ['Removes', preview.counts.remove],
-        ['Disables', preview.counts.disable],
-        ['Possible duplicates', preview.counts.possibleDuplicate],
-        ['Conflicts', preview.counts.duplicateConflict],
-        ['EMS only', preview.counts.emsOnly],
-        ['Up to date', preview.counts.upToDate],
-        ['Skipped', preview.counts.skipped],
-      ]
+      ['Updates', preview.counts.update],
+      ['Creates', preview.counts.create],
+      ['Removes', preview.counts.remove],
+      ['Disables', preview.counts.disable],
+      ['Possible duplicates', preview.counts.possibleDuplicate],
+      ['Conflicts', preview.counts.duplicateConflict],
+      ['EMS only', preview.counts.emsOnly],
+      ['Up to date', preview.counts.upToDate],
+      ['Skipped', preview.counts.skipped],
+    ]
     : [];
 
   const titleLabel = direction === 'entraToEms' ? 'Entra → EMS' : 'EMS → Entra';
@@ -804,9 +805,8 @@ function SyncPreviewModal({
                         return (
                           <tr
                             key={row.actionId}
-                            className={`border-b border-border/60 align-top transition-colors ${
-                              selected ? 'bg-ems-accent-dim/30' : 'hover:bg-hover/50'
-                            }`}
+                            className={`border-b border-border/60 align-top transition-colors ${selected ? 'bg-ems-accent-dim/30' : 'hover:bg-hover/50'
+                              }`}
                           >
                             <td className="px-3 py-2.5">
                               {selectable ? (
@@ -987,8 +987,8 @@ function InternalContactSyncPreviewPanel({
 
   const handleApplyClick = () => {
     const selectedRowsWithDeps = preview.rows.filter(
-      r => selectedActionIds.has(r.actionId) && 
-           r.dependencies && r.dependencies.length > 0
+      r => selectedActionIds.has(r.actionId) &&
+        r.dependencies && r.dependencies.length > 0
     );
 
     let html = `You are about to apply <b>${applyCount}</b> selected action${applyCount !== 1 ? 's' : ''}.<br/>Are you sure you want to proceed?`;
@@ -996,7 +996,7 @@ function InternalContactSyncPreviewPanel({
     if (selectedRowsWithDeps.length > 0) {
       const depList = selectedRowsWithDeps.slice(0, 5).map(r => `<li><b>${syncRowPrimaryName(r)}</b> (${r.dependencies!.join(', ')})</li>`).join('');
       const more = selectedRowsWithDeps.length > 5 ? `<li>...and ${selectedRowsWithDeps.length - 5} more</li>` : '';
-      
+
       html += `<br/><br/><div class="text-left text-ems-coral bg-ems-coral/10 p-3 rounded-md border border-ems-coral/20">
         <p class="font-semibold mb-1">Warning: Linked Records Will Be Deleted</p>
         <p class="mb-2 text-xs">The following contacts have connected system records that will be <b>permanently deleted</b> because their assignments are being removed or reduced:</p>
@@ -1110,79 +1110,79 @@ function InternalContactSyncPreviewPanel({
             </thead>
             <tbody>
               {filteredRows.map((row) => {
-              const selectable = SELECTABLE_SYNC_TYPES.has(row.type);
-              const selected = selectedActionIds.has(row.actionId);
-              return (
-                <tr key={row.actionId} className="border-b border-border/60 align-top">
-                  <td className="px-3 py-2">
-                    {selectable ? (
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 accent-ems-accent"
-                        checked={selected}
-                        onChange={(event) => onToggleAction(row.actionId, event.target.checked)}
-                        aria-label={`Apply ${syncRowPrimaryName(row)}`}
-                      />
-                    ) : (
-                      <span className="text-xs text-text-muted">—</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    <span className={`inline-flex rounded border px-2 py-0.5 text-xs font-medium ${syncTypeBadgeClass(row.type)}`}>
-                      {syncTypeLabel(row.type)}
-                    </span>
-                    <p className="mt-1 max-w-[220px] text-xs text-text-muted">{row.reason}</p>
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="font-medium text-text-primary">{row.entraName || '—'}</div>
-                    <div className="text-xs text-text-secondary">{row.entraEmail || '—'}</div>
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="font-medium text-text-primary">{row.emsName || '—'}</div>
-                    <div className="text-xs text-text-secondary">{row.emsEmail || '—'}</div>
-                  </td>
-                  <td className="px-3 py-2">
-                    {row.changes.length > 0 ? (
-                      <div className="space-y-1">
-                        {row.changes.map((change) => renderSyncChange(change, {
-                          selectable: row.type === 'update',
-                          selected: selectedActionFields[row.actionId] ? selectedActionFields[row.actionId].has(change.field) : true,
-                          onToggle: (checked) => onToggleActionField(row.actionId, change.field, checked, row.changes.map(c => c.field))
-                        }))}
-                      </div>
-                    ) : (
-                      <span className="text-xs text-text-muted">No field changes</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {row.type === 'possibleDuplicate' && row.candidateContacts?.length ? (
-                      <select
-                        className="w-full rounded border border-border bg-surface px-2 py-1 text-xs text-text-primary"
-                        value={manualMappings[row.actionId] ?? ''}
-                        onChange={(event) => onManualMappingChange(row.actionId, event.target.value)}
-                      >
-                        <option value="">
-                          {direction === 'entraToEms' ? 'Choose EMS contact...' : 'Choose Entra user...'}
-                        </option>
-                        {row.candidateContacts.map((candidate) => {
-                          const value = String(candidate.contactId ?? candidate.entraUserId ?? '');
-                          return (
-                            <option key={value} value={value}>
-                              {candidate.name} {candidate.email ? `(${candidate.email})` : ''}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    ) : (
-                      <span className="text-xs text-text-muted">—</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                const selectable = SELECTABLE_SYNC_TYPES.has(row.type);
+                const selected = selectedActionIds.has(row.actionId);
+                return (
+                  <tr key={row.actionId} className="border-b border-border/60 align-top">
+                    <td className="px-3 py-2">
+                      {selectable ? (
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-ems-accent"
+                          checked={selected}
+                          onChange={(event) => onToggleAction(row.actionId, event.target.checked)}
+                          aria-label={`Apply ${syncRowPrimaryName(row)}`}
+                        />
+                      ) : (
+                        <span className="text-xs text-text-muted">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={`inline-flex rounded border px-2 py-0.5 text-xs font-medium ${syncTypeBadgeClass(row.type)}`}>
+                        {syncTypeLabel(row.type)}
+                      </span>
+                      <p className="mt-1 max-w-[220px] text-xs text-text-muted">{row.reason}</p>
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="font-medium text-text-primary">{row.entraName || '—'}</div>
+                      <div className="text-xs text-text-secondary">{row.entraEmail || '—'}</div>
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="font-medium text-text-primary">{row.emsName || '—'}</div>
+                      <div className="text-xs text-text-secondary">{row.emsEmail || '—'}</div>
+                    </td>
+                    <td className="px-3 py-2">
+                      {row.changes.length > 0 ? (
+                        <div className="space-y-1">
+                          {row.changes.map((change) => renderSyncChange(change, {
+                            selectable: row.type === 'update',
+                            selected: selectedActionFields[row.actionId] ? selectedActionFields[row.actionId].has(change.field) : true,
+                            onToggle: (checked) => onToggleActionField(row.actionId, change.field, checked, row.changes.map(c => c.field))
+                          }))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-text-muted">No field changes</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      {row.type === 'possibleDuplicate' && row.candidateContacts?.length ? (
+                        <select
+                          className="w-full rounded border border-border bg-surface px-2 py-1 text-xs text-text-primary"
+                          value={manualMappings[row.actionId] ?? ''}
+                          onChange={(event) => onManualMappingChange(row.actionId, event.target.value)}
+                        >
+                          <option value="">
+                            {direction === 'entraToEms' ? 'Choose EMS contact...' : 'Choose Entra user...'}
+                          </option>
+                          {row.candidateContacts.map((candidate) => {
+                            const value = String(candidate.contactId ?? candidate.entraUserId ?? '');
+                            return (
+                              <option key={value} value={value}>
+                                {candidate.name} {candidate.email ? `(${candidate.email})` : ''}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      ) : (
+                        <span className="text-xs text-text-muted">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       ) : preview.rows.length > 0 ? (
         <div className="py-8 text-center text-sm text-text-muted border border-dashed border-border rounded-lg">
           No contacts match your search "{searchQuery}".
@@ -1201,7 +1201,9 @@ export function SettingsPage({
   const { instance, accounts } = useMsal();
   const account = getActiveAccount() ?? accounts[0] ?? null;
   const qc = useQueryClient();
-  const [tab, setTab] = useState<'Users' | 'Lookup Tables' | 'System'>(initialMainTab);
+  const [tab, setTab] = useState<'Users' | 'Lookup Tables' | 'AI Assistant' | 'System'>(
+    initialMainTab as 'Users' | 'Lookup Tables' | 'AI Assistant' | 'System',
+  );
   const [selectedUser, setSelectedUser] = useState<UserProfileUser | null>(null);
   const [usersViewMode, setUsersViewMode] = useState<'tiles' | 'table'>('tiles');
   const [usersViewTab, setUsersViewTab] = useState<'alpha' | 'dept'>('alpha');
@@ -1305,11 +1307,11 @@ export function SettingsPage({
             account,
             scopes: ["https://graph.microsoft.com/User.Read.All"],
           });
-          return new Promise<never>(() => {});
+          return new Promise<never>(() => { });
         } catch {
           // ignore synchronous redirect errors and fallback to UI
         }
-        
+
         setDirectoryDiagnostics(baseDiagnostics);
         const tokenError = new Error('Unable to acquire Microsoft Graph token. Please sign in again.') as Error & {
           cause?: unknown;
@@ -1557,15 +1559,15 @@ export function SettingsPage({
       const result =
         internalSyncDirection === 'entraToEms'
           ? await applyEntraToEmsContactSync({
-              selectedActionIds: Array.from(selectedInternalSyncActions),
-              manualMappings,
-              selectedActionFields: serializableFields,
-            })
+            selectedActionIds: Array.from(selectedInternalSyncActions),
+            manualMappings,
+            selectedActionFields: serializableFields,
+          })
           : await applyEmsToEntraContactSync({
-              selectedActionIds: Array.from(selectedInternalSyncActions),
-              manualMappings: emsToEntraManualMappings,
-              selectedActionFields: serializableFields,
-            });
+            selectedActionIds: Array.from(selectedInternalSyncActions),
+            manualMappings: emsToEntraManualMappings,
+            selectedActionFields: serializableFields,
+          });
       addToast(
         `Internal contact sync complete: ${result.created} created, ${result.updated} updated, ${result.removed} removed, ${result.disabled} disabled.`,
         'success',
@@ -1742,28 +1744,28 @@ export function SettingsPage({
     const rows = lookupSuggestionsQuery.data?.data ?? [];
     const values =
       activeLookupKey === 'company-type-services'
-          ? rows.flatMap((row) => {
-              const typeName = String(row.companyTypeName ?? '').trim();
-              const serviceNames = Array.isArray(row.serviceNames)
-                ? row.serviceNames.map((value) => String(value ?? '').trim()).filter(Boolean)
-                : String(row.serviceName ?? '')
-                    .split(',')
-                    .map((value) => value.trim())
-                    .filter(Boolean);
-              return [typeName, ...serviceNames].filter(Boolean);
-            })
+        ? rows.flatMap((row) => {
+          const typeName = String(row.companyTypeName ?? '').trim();
+          const serviceNames = Array.isArray(row.serviceNames)
+            ? row.serviceNames.map((value) => String(value ?? '').trim()).filter(Boolean)
+            : String(row.serviceName ?? '')
+              .split(',')
+              .map((value) => value.trim())
+              .filter(Boolean);
+          return [typeName, ...serviceNames].filter(Boolean);
+        })
         : activeLookupKey === 'department-roles'
           ? rows.flatMap((row) => {
-              const deptName = String(row.departmentName ?? '').trim();
-              const roleNames = Array.isArray(row.roleNames)
-                ? row.roleNames.map((value) => String(value ?? '').trim()).filter(Boolean)
-                : String(row.roleName ?? '')
-                    .split(',')
-                    .map((value) => value.trim())
-                    .filter(Boolean);
-              return [deptName, ...roleNames].filter(Boolean);
-            })
-        : rows.map((row) => String(row[activeLookupConfig.nameField ?? activeLookupConfig.idField] ?? '').trim());
+            const deptName = String(row.departmentName ?? '').trim();
+            const roleNames = Array.isArray(row.roleNames)
+              ? row.roleNames.map((value) => String(value ?? '').trim()).filter(Boolean)
+              : String(row.roleName ?? '')
+                .split(',')
+                .map((value) => value.trim())
+                .filter(Boolean);
+            return [deptName, ...roleNames].filter(Boolean);
+          })
+          : rows.map((row) => String(row[activeLookupConfig.nameField ?? activeLookupConfig.idField] ?? '').trim());
     const deduped: string[] = [];
     for (const v of values) {
       if (!v) continue;
@@ -2003,336 +2005,375 @@ export function SettingsPage({
       {selectedUser ? (
         <UserProfileDetail user={selectedUser} onBack={() => setSelectedUser(null)} addToast={addToast} />
       ) : (
-      <>
-      <h1 className="text-xl font-semibold text-text-primary">Settings</h1>
-      <TabBar
-        tabs={['Users', 'Lookup Tables', 'System']}
-        active={tab}
-        onChange={(t) => {
-          if (t === 'Users' || t === 'Lookup Tables' || t === 'System') {
-            setTab(t);
-          }
-        }}
-      />
+        <>
+          <h1 className="text-xl font-semibold text-text-primary">Settings</h1>
+          <TabBar
+            tabs={['Users', 'Lookup Tables', 'AI Assistant', 'System']}
+            active={tab}
+            onChange={(t) => {
+              if (t === 'Users' || t === 'Lookup Tables' || t === 'AI Assistant' || t === 'System') {
+                setTab(t);
+              }
+            }}
+          />
 
-      {tab === 'Users' && (
-        <div className="space-y-3">
-          <div className="bg-card border border-border rounded-lg p-4 space-y-3">
-            <div>
-              <h3 className="text-base font-semibold text-text-primary">Microsoft Entra user directory</h3>
-              <p className="mt-1 text-sm text-text-secondary">
-                This table is loaded directly from Microsoft Graph using your signed-in Entra account.
-              </p>
-            </div>
-
-            {adminUsersQuery.isPending ? (
-              <div className="flex items-center gap-2 rounded-md border border-border bg-elevated px-3 py-2 text-sm text-text-secondary">
-                <Loader2 className="h-4 w-4 animate-spin text-ems-accent" />
-                Loading Entra users...
-              </div>
-            ) : null}
-
-            {adminUsersQuery.isError ? (
-              <div className="space-y-2">
-                <div className="rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">
-                  {friendlyApiError(
-                    adminUsersQuery.error,
-                    getDirectoryUsersErrorMessage(adminUsersQuery.error),
-                  )}
+          {tab === 'Users' && (
+            <div className="space-y-3">
+              <div className="bg-card border border-border rounded-lg p-4 space-y-3">
+                <div>
+                  <h3 className="text-base font-semibold text-text-primary">Microsoft Entra user directory</h3>
+                  <p className="mt-1 text-sm text-text-secondary">
+                    This table is loaded directly from Microsoft Graph using your signed-in Entra account.
+                  </p>
                 </div>
-                {account ? (
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface px-3 py-2">
-                    <p className="text-sm text-text-secondary">
-                      Connect Microsoft Graph once to load directory users from your signed-in account.
-                    </p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleConnectDirectory}
-                      disabled={directoryPermissionBusy}
-                    >
-                      {directoryPermissionBusy ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : null}
-                      Connect directory
-                    </Button>
+
+                {adminUsersQuery.isPending ? (
+                  <div className="flex items-center gap-2 rounded-md border border-border bg-elevated px-3 py-2 text-sm text-text-secondary">
+                    <Loader2 className="h-4 w-4 animate-spin text-ems-accent" />
+                    Loading Entra users...
                   </div>
                 ) : null}
-                {directoryPermissionError ? (
-                  <div className="rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">
-                    {directoryPermissionError}
-                  </div>
-                ) : null}
-                {directoryDiagnostics ? (
-                  <div className="rounded-md border border-border bg-elevated px-3 py-3 text-xs text-text-secondary">
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <p className="font-semibold text-text-primary">Microsoft Graph diagnostics</p>
-                      {directoryDiagnostics.userCount != null ? (
-                        <span className="text-text-muted">{directoryDiagnostics.userCount} users returned</span>
-                      ) : null}
+
+                {adminUsersQuery.isError ? (
+                  <div className="space-y-2">
+                    <div className="rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">
+                      {friendlyApiError(
+                        adminUsersQuery.error,
+                        getDirectoryUsersErrorMessage(adminUsersQuery.error),
+                      )}
                     </div>
-                    <div className="grid gap-2 md:grid-cols-2">
-                      <div>
-                        <span className="text-text-muted">Account</span>
-                        <div className="break-all font-mono text-text-secondary">
-                          {directoryDiagnostics.accountUsername || '—'}
-                        </div>
+                    {account ? (
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface px-3 py-2">
+                        <p className="text-sm text-text-secondary">
+                          Connect Microsoft Graph once to load directory users from your signed-in account.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleConnectDirectory}
+                          disabled={directoryPermissionBusy}
+                        >
+                          {directoryPermissionBusy ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : null}
+                          Connect directory
+                        </Button>
                       </div>
-                      <div>
-                        <span className="text-text-muted">Token audience</span>
-                        <div className="break-all font-mono text-text-secondary">
-                          {directoryDiagnostics.token?.aud || '—'}
-                        </div>
+                    ) : null}
+                    {directoryPermissionError ? (
+                      <div className="rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">
+                        {directoryPermissionError}
                       </div>
-                      <div>
-                        <span className="text-text-muted">Graph audience</span>
-                        <div className="font-mono text-text-secondary">
-                          {directoryDiagnostics.token?.isGraphAudience ? 'yes' : 'no'}
+                    ) : null}
+                    {directoryDiagnostics ? (
+                      <div className="rounded-md border border-border bg-elevated px-3 py-3 text-xs text-text-secondary">
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-semibold text-text-primary">Microsoft Graph diagnostics</p>
+                          {directoryDiagnostics.userCount != null ? (
+                            <span className="text-text-muted">{directoryDiagnostics.userCount} users returned</span>
+                          ) : null}
                         </div>
-                      </div>
-                      <div>
-                        <span className="text-text-muted">Has User.Read.All</span>
-                        <div className="font-mono text-text-secondary">
-                          {directoryDiagnostics.token?.hasUserReadAll ? 'yes' : 'no'}
-                        </div>
-                      </div>
-                      <div className="md:col-span-2">
-                        <span className="text-text-muted">Delegated scopes</span>
-                        <div className="break-all font-mono text-text-secondary">
-                          {directoryDiagnostics.token?.scp || '—'}
-                        </div>
-                      </div>
-                      {directoryDiagnostics.graphError ? (
-                        <>
+                        <div className="grid gap-2 md:grid-cols-2">
                           <div>
-                            <span className="text-text-muted">Graph error</span>
+                            <span className="text-text-muted">Account</span>
                             <div className="break-all font-mono text-text-secondary">
-                              {directoryDiagnostics.graphError.code || '—'}
+                              {directoryDiagnostics.accountUsername || '—'}
                             </div>
                           </div>
                           <div>
-                            <span className="text-text-muted">Graph request ID</span>
+                            <span className="text-text-muted">Token audience</span>
                             <div className="break-all font-mono text-text-secondary">
-                              {directoryDiagnostics.graphError.requestId || '—'}
+                              {directoryDiagnostics.token?.aud || '—'}
+                            </div>
+                          </div>
+                          <div>
+                            <span className="text-text-muted">Graph audience</span>
+                            <div className="font-mono text-text-secondary">
+                              {directoryDiagnostics.token?.isGraphAudience ? 'yes' : 'no'}
+                            </div>
+                          </div>
+                          <div>
+                            <span className="text-text-muted">Has User.Read.All</span>
+                            <div className="font-mono text-text-secondary">
+                              {directoryDiagnostics.token?.hasUserReadAll ? 'yes' : 'no'}
                             </div>
                           </div>
                           <div className="md:col-span-2">
-                            <span className="text-text-muted">Graph message</span>
-                            <div className="break-all text-text-secondary">
-                              {directoryDiagnostics.graphError.message || '—'}
+                            <span className="text-text-muted">Delegated scopes</span>
+                            <div className="break-all font-mono text-text-secondary">
+                              {directoryDiagnostics.token?.scp || '—'}
                             </div>
                           </div>
-                        </>
-                      ) : null}
-                    </div>
-                    <p className="mt-3 rounded border border-border bg-surface px-2 py-2 text-text-secondary">
-                      {getDirectoryDiagnosticHint(directoryDiagnostics)}
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
-            {account ? (
-              <div className="space-y-3 rounded-md border border-border bg-surface px-3 py-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-	                  <div>
-	                    <p className="text-sm font-semibold text-text-primary">
-	                      Manual EMS internal contact sync
-	                    </p>
-	                    <p className="text-xs text-text-secondary">
-	                      Choose the source of truth, preview changes, then manually apply selected rows.
-	                    </p>
-	                  </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handlePreviewInternalContactSync('entraToEms')}
-                        disabled={internalSyncBusy || internalSyncApplying}
-                      >
-                        {internalSyncBusy && internalSyncDirection === 'entraToEms' ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : null}
-                        Preview Entra {'->'} EMS
-                      </Button>
-                    </div>
-	                </div>
-
-                {internalSyncResult ? (
-                  <div className="space-y-2 rounded-md border border-ems-green/30 bg-ems-green/10 px-3 py-3 text-sm">
-                    <div className="flex items-center gap-2">
-                      <svg className="h-4 w-4 shrink-0 text-ems-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                      <p className="font-semibold text-ems-green">
-                        Sync complete — {internalSyncResult.created} created, {internalSyncResult.updated} updated, {internalSyncResult.removed} removed, {internalSyncResult.disabled} disabled.
-                      </p>
-                    </div>
-                    {internalSyncResult.createdEntraUsers?.length ? (
-                      <div className="rounded-md border border-ems-amber/30 bg-ems-amber/10 px-3 py-2 text-xs text-text-secondary">
-                        <p className="mb-2 font-semibold text-ems-amber">One-time temporary passwords for created Entra users</p>
-                        <div className="space-y-1 font-mono">
-                          {internalSyncResult.createdEntraUsers.map((user) => (
-                            <div key={user.userPrincipalName} className="break-all">
-                              {user.userPrincipalName}: {user.temporaryPassword}
-                            </div>
-                          ))}
+                          {directoryDiagnostics.graphError ? (
+                            <>
+                              <div>
+                                <span className="text-text-muted">Graph error</span>
+                                <div className="break-all font-mono text-text-secondary">
+                                  {directoryDiagnostics.graphError.code || '—'}
+                                </div>
+                              </div>
+                              <div>
+                                <span className="text-text-muted">Graph request ID</span>
+                                <div className="break-all font-mono text-text-secondary">
+                                  {directoryDiagnostics.graphError.requestId || '—'}
+                                </div>
+                              </div>
+                              <div className="md:col-span-2">
+                                <span className="text-text-muted">Graph message</span>
+                                <div className="break-all text-text-secondary">
+                                  {directoryDiagnostics.graphError.message || '—'}
+                                </div>
+                              </div>
+                            </>
+                          ) : null}
                         </div>
+                        <p className="mt-3 rounded border border-border bg-surface px-2 py-2 text-text-secondary">
+                          {getDirectoryDiagnosticHint(directoryDiagnostics)}
+                        </p>
                       </div>
                     ) : null}
                   </div>
                 ) : null}
 
-                <SyncPreviewModal
-                  open={syncPreviewModalOpen}
-                  direction={internalSyncDirection}
-                  loading={internalSyncBusy}
-                  error={internalSyncError}
-                  preview={internalSyncPreview}
-                  applying={internalSyncApplying}
-                  selectedActionIds={selectedInternalSyncActions}
-                  manualMappings={internalSyncMappings}
-                  selectedActionFields={selectedInternalSyncFields}
-                  onToggleAction={toggleInternalSyncAction}
-                  onManualMappingChange={updateInternalSyncMapping}
-                  onToggleActionField={toggleInternalSyncActionField}
-                  onToggleAllActions={toggleAllInternalSyncActions}
-                  onApply={handleApplyInternalContactSync}
-                  onClose={() => {
-                    if (!internalSyncApplying) setSyncPreviewModalOpen(false);
-                  }}
-                />
-	              </div>
-	            ) : null}
+                {account ? (
+                  <div className="space-y-3 rounded-md border border-border bg-surface px-3 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-text-primary">
+                          Manual EMS internal contact sync
+                        </p>
+                        <p className="text-xs text-text-secondary">
+                          Choose the source of truth, preview changes, then manually apply selected rows.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handlePreviewInternalContactSync('entraToEms')}
+                          disabled={internalSyncBusy || internalSyncApplying}
+                        >
+                          {internalSyncBusy && internalSyncDirection === 'entraToEms' ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : null}
+                          Preview Entra {'->'} EMS
+                        </Button>
+                      </div>
+                    </div>
 
-            {adminUsersQuery.data ? (
-              <div className="space-y-4">
-                {/* Search + controls toolbar */}
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-                  <div className="relative w-full lg:max-w-sm lg:flex-1">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400 dk:text-neutral-500" aria-hidden />
-                    <input
-                      type="search"
-                      value={usersSearch}
-                      onChange={(e) => setUsersSearch(e.target.value)}
-                      placeholder="Search by name, title, department, or email"
-                      aria-label="Search users"
-                      className="h-10 w-full rounded-lg border border-neutral-300 bg-white pl-9 pr-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-black focus:outline-none focus:ring-1 focus:ring-black dk:border-white/10 dk:bg-white/[0.04] dk:text-white dk:placeholder:text-neutral-500 dk:focus:border-white/40 dk:focus:ring-white/30"
+                    {internalSyncResult ? (
+                      <div className="space-y-2 rounded-md border border-ems-green/30 bg-ems-green/10 px-3 py-3 text-sm">
+                        <div className="flex items-center gap-2">
+                          <svg className="h-4 w-4 shrink-0 text-ems-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                          <p className="font-semibold text-ems-green">
+                            Sync complete — {internalSyncResult.created} created, {internalSyncResult.updated} updated, {internalSyncResult.removed} removed, {internalSyncResult.disabled} disabled.
+                          </p>
+                        </div>
+                        {internalSyncResult.createdEntraUsers?.length ? (
+                          <div className="rounded-md border border-ems-amber/30 bg-ems-amber/10 px-3 py-2 text-xs text-text-secondary">
+                            <p className="mb-2 font-semibold text-ems-amber">One-time temporary passwords for created Entra users</p>
+                            <div className="space-y-1 font-mono">
+                              {internalSyncResult.createdEntraUsers.map((user) => (
+                                <div key={user.userPrincipalName} className="break-all">
+                                  {user.userPrincipalName}: {user.temporaryPassword}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    <SyncPreviewModal
+                      open={syncPreviewModalOpen}
+                      direction={internalSyncDirection}
+                      loading={internalSyncBusy}
+                      error={internalSyncError}
+                      preview={internalSyncPreview}
+                      applying={internalSyncApplying}
+                      selectedActionIds={selectedInternalSyncActions}
+                      manualMappings={internalSyncMappings}
+                      selectedActionFields={selectedInternalSyncFields}
+                      onToggleAction={toggleInternalSyncAction}
+                      onManualMappingChange={updateInternalSyncMapping}
+                      onToggleActionField={toggleInternalSyncActionField}
+                      onToggleAllActions={toggleAllInternalSyncActions}
+                      onApply={handleApplyInternalContactSync}
+                      onClose={() => {
+                        if (!internalSyncApplying) setSyncPreviewModalOpen(false);
+                      }}
                     />
                   </div>
+                ) : null}
 
-                  <div className="flex flex-wrap items-center gap-2 lg:ml-auto lg:justify-end">
-                    {usersViewMode === 'tiles' && (
-                      <div className="inline-flex h-10 items-center gap-0.5 rounded-lg border border-neutral-200 bg-neutral-100/80 p-1 dk:border-white/10 dk:bg-white/[0.04]">
-                        {usersViewTab === 'alpha' ? (
-                          <span className="inline-flex items-center">
-                            <Select value={usersAlphaSort} onValueChange={(v) => setUsersAlphaSort(v as 'first' | 'last')}>
-                              <SelectTrigger aria-label="Alphabetical sort" className="h-8 w-[145px] gap-1.5 rounded-md border-0 bg-white px-3 text-[13px] font-medium text-neutral-900 shadow-sm ring-1 ring-black/[0.06] focus:ring-1 focus:ring-black/[0.06] dk:bg-white/[0.14] dk:text-white dk:shadow-none dk:ring-white/10 dk:focus:ring-white/20">
-                                <AlignLeft className="h-4 w-4 shrink-0" />
-                                <span>Alphabetical</span>
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="first">Sort: First Name</SelectItem>
-                                <SelectItem value="last">Sort: Last Name</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </span>
-                        ) : (
-                          <button type="button" onClick={() => { setUsersDepartment('__all__'); setUsersViewTab('alpha'); }} className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium text-neutral-500 hover:text-neutral-900 transition-all dk:text-neutral-400 dk:hover:text-white">
-                            <AlignLeft className="h-4 w-4" /> Alphabetical
-                          </button>
-                        )}
-                        <button type="button" onClick={() => setUsersViewTab('dept')} className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-all ${usersViewTab === 'dept' ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/[0.06] dk:bg-white/[0.14] dk:text-white dk:ring-white/10' : 'text-neutral-500 hover:text-neutral-900 dk:text-neutral-400 dk:hover:text-white'}`}>
-                          <Grid2x2 className="h-4 w-4" /> Department
-                        </button>
+                {adminUsersQuery.data ? (
+                  <div className="space-y-4">
+                    {/* Search + controls toolbar */}
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                      <div className="relative w-full lg:max-w-sm lg:flex-1">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400 dk:text-neutral-500" aria-hidden />
+                        <input
+                          type="search"
+                          value={usersSearch}
+                          onChange={(e) => setUsersSearch(e.target.value)}
+                          placeholder="Search by name, title, department, or email"
+                          aria-label="Search users"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white pl-9 pr-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-black focus:outline-none focus:ring-1 focus:ring-black dk:border-white/10 dk:bg-white/[0.04] dk:text-white dk:placeholder:text-neutral-500 dk:focus:border-white/40 dk:focus:ring-white/30"
+                        />
                       </div>
-                    )}
 
-                    {usersViewMode === 'table' && (
-                      <div className="inline-flex h-10 items-center gap-0.5 rounded-lg border border-neutral-200 bg-neutral-100/80 p-1 dk:border-white/10 dk:bg-white/[0.04]">
-                        {usersViewTab === 'alpha' ? (
-                          <span className="inline-flex items-center">
-                            <Select value={usersAlphaSort} onValueChange={(v) => setUsersAlphaSort(v as 'first' | 'last')}>
-                              <SelectTrigger aria-label="Alphabetical sort" className="h-8 w-[145px] gap-1.5 rounded-md border-0 bg-white px-3 text-[13px] font-medium text-neutral-900 shadow-sm ring-1 ring-black/[0.06] focus:ring-1 focus:ring-black/[0.06] dk:bg-white/[0.14] dk:text-white dk:shadow-none dk:ring-white/10 dk:focus:ring-white/20">
-                                <AlignLeft className="h-4 w-4 shrink-0" />
-                                <span>Alphabetical</span>
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="first">Sort: First Name</SelectItem>
-                                <SelectItem value="last">Sort: Last Name</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </span>
-                        ) : (
-                          <button type="button" onClick={() => { setUsersDepartment('__all__'); setUsersViewTab('alpha'); }} className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium text-neutral-500 hover:text-neutral-900 transition-all dk:text-neutral-400 dk:hover:text-white">
-                            <AlignLeft className="h-4 w-4" /> Alphabetical
-                          </button>
+                      <div className="flex flex-wrap items-center gap-2 lg:ml-auto lg:justify-end">
+                        {usersViewMode === 'tiles' && (
+                          <div className="inline-flex h-10 items-center gap-0.5 rounded-lg border border-neutral-200 bg-neutral-100/80 p-1 dk:border-white/10 dk:bg-white/[0.04]">
+                            {usersViewTab === 'alpha' ? (
+                              <span className="inline-flex items-center">
+                                <Select value={usersAlphaSort} onValueChange={(v) => setUsersAlphaSort(v as 'first' | 'last')}>
+                                  <SelectTrigger aria-label="Alphabetical sort" className="h-8 w-[145px] gap-1.5 rounded-md border-0 bg-white px-3 text-[13px] font-medium text-neutral-900 shadow-sm ring-1 ring-black/[0.06] focus:ring-1 focus:ring-black/[0.06] dk:bg-white/[0.14] dk:text-white dk:shadow-none dk:ring-white/10 dk:focus:ring-white/20">
+                                    <AlignLeft className="h-4 w-4 shrink-0" />
+                                    <span>Alphabetical</span>
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="first">Sort: First Name</SelectItem>
+                                    <SelectItem value="last">Sort: Last Name</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </span>
+                            ) : (
+                              <button type="button" onClick={() => { setUsersDepartment('__all__'); setUsersViewTab('alpha'); }} className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium text-neutral-500 hover:text-neutral-900 transition-all dk:text-neutral-400 dk:hover:text-white">
+                                <AlignLeft className="h-4 w-4" /> Alphabetical
+                              </button>
+                            )}
+                            <button type="button" onClick={() => setUsersViewTab('dept')} className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-all ${usersViewTab === 'dept' ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/[0.06] dk:bg-white/[0.14] dk:text-white dk:ring-white/10' : 'text-neutral-500 hover:text-neutral-900 dk:text-neutral-400 dk:hover:text-white'}`}>
+                              <Grid2x2 className="h-4 w-4" /> Department
+                            </button>
+                          </div>
                         )}
-                        <button type="button" onClick={() => setUsersViewTab('dept')} className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-all ${usersViewTab === 'dept' ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/[0.06] dk:bg-white/[0.14] dk:text-white dk:ring-white/10' : 'text-neutral-500 hover:text-neutral-900 dk:text-neutral-400 dk:hover:text-white'}`}>
-                          <Grid2x2 className="h-4 w-4" /> Department
-                        </button>
-                      </div>
-                    )}
 
-                    <div className="inline-flex h-10 items-center gap-0.5 rounded-lg border border-neutral-200 bg-neutral-100/80 p-1 dk:border-white/10 dk:bg-white/[0.04]">
-                      <button type="button" onClick={() => setUsersViewMode('tiles')} className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-all ${usersViewMode === 'tiles' ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/[0.06] dk:bg-white/[0.14] dk:text-white dk:ring-white/10' : 'text-neutral-500 hover:text-neutral-900 dk:text-neutral-400 dk:hover:text-white'}`} aria-label="Tile view">
-                        <LayoutGrid className="h-4 w-4" /> Tiles
-                      </button>
-                      <button type="button" onClick={() => setUsersViewMode('table')} className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-all ${usersViewMode === 'table' ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/[0.06] dk:bg-white/[0.14] dk:text-white dk:ring-white/10' : 'text-neutral-500 hover:text-neutral-900 dk:text-neutral-400 dk:hover:text-white'}`} aria-label="Table view">
-                        <Rows3 className="h-4 w-4" /> Table
-                      </button>
+                        {usersViewMode === 'table' && (
+                          <div className="inline-flex h-10 items-center gap-0.5 rounded-lg border border-neutral-200 bg-neutral-100/80 p-1 dk:border-white/10 dk:bg-white/[0.04]">
+                            {usersViewTab === 'alpha' ? (
+                              <span className="inline-flex items-center">
+                                <Select value={usersAlphaSort} onValueChange={(v) => setUsersAlphaSort(v as 'first' | 'last')}>
+                                  <SelectTrigger aria-label="Alphabetical sort" className="h-8 w-[145px] gap-1.5 rounded-md border-0 bg-white px-3 text-[13px] font-medium text-neutral-900 shadow-sm ring-1 ring-black/[0.06] focus:ring-1 focus:ring-black/[0.06] dk:bg-white/[0.14] dk:text-white dk:shadow-none dk:ring-white/10 dk:focus:ring-white/20">
+                                    <AlignLeft className="h-4 w-4 shrink-0" />
+                                    <span>Alphabetical</span>
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="first">Sort: First Name</SelectItem>
+                                    <SelectItem value="last">Sort: Last Name</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </span>
+                            ) : (
+                              <button type="button" onClick={() => { setUsersDepartment('__all__'); setUsersViewTab('alpha'); }} className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium text-neutral-500 hover:text-neutral-900 transition-all dk:text-neutral-400 dk:hover:text-white">
+                                <AlignLeft className="h-4 w-4" /> Alphabetical
+                              </button>
+                            )}
+                            <button type="button" onClick={() => setUsersViewTab('dept')} className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-all ${usersViewTab === 'dept' ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/[0.06] dk:bg-white/[0.14] dk:text-white dk:ring-white/10' : 'text-neutral-500 hover:text-neutral-900 dk:text-neutral-400 dk:hover:text-white'}`}>
+                              <Grid2x2 className="h-4 w-4" /> Department
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="inline-flex h-10 items-center gap-0.5 rounded-lg border border-neutral-200 bg-neutral-100/80 p-1 dk:border-white/10 dk:bg-white/[0.04]">
+                          <button type="button" onClick={() => setUsersViewMode('tiles')} className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-all ${usersViewMode === 'tiles' ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/[0.06] dk:bg-white/[0.14] dk:text-white dk:ring-white/10' : 'text-neutral-500 hover:text-neutral-900 dk:text-neutral-400 dk:hover:text-white'}`} aria-label="Tile view">
+                            <LayoutGrid className="h-4 w-4" /> Tiles
+                          </button>
+                          <button type="button" onClick={() => setUsersViewMode('table')} className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-all ${usersViewMode === 'table' ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/[0.06] dk:bg-white/[0.14] dk:text-white dk:ring-white/10' : 'text-neutral-500 hover:text-neutral-900 dk:text-neutral-400 dk:hover:text-white'}`} aria-label="Table view">
+                            <Rows3 className="h-4 w-4" /> Table
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
 
-                {/* Department chips */}
-                {usersShowChips && (
-                  <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter by department">
-                    <button type="button" onClick={() => setUsersDepartment('__all__')} className={`inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors ${usersActiveDepartment === '__all__' ? 'bg-neutral-900 text-white dk:bg-white dk:text-neutral-900' : 'border border-neutral-200 bg-white text-neutral-700 hover:border-neutral-400 dk:border-white/10 dk:bg-white/[0.04] dk:text-neutral-300 dk:hover:border-white/30 dk:hover:text-white'}`}>
-                      <span>All</span>
-                      <span className={usersActiveDepartment === '__all__' ? 'text-white/55 dk:text-neutral-900/55' : 'text-neutral-400 dk:text-neutral-500'}>{usersSearched.length}</span>
-                    </button>
-                    {usersDepartmentChips.map((chip) => (
-                      <button key={chip.name} type="button" onClick={() => setUsersDepartment((c) => c === chip.name ? '__all__' : chip.name)} className={`inline-flex h-8 max-w-full items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors ${usersActiveDepartment === chip.name ? 'bg-neutral-900 text-white dk:bg-white dk:text-neutral-900' : 'border border-neutral-200 bg-white text-neutral-700 hover:border-neutral-400 dk:border-white/10 dk:bg-white/[0.04] dk:text-neutral-300 dk:hover:border-white/30 dk:hover:text-white'}`}>
-                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] ${usersActiveDepartment === chip.name ? 'border-white/60 dk:border-neutral-900/40' : 'border-neutral-300 dk:border-white/25'}`} aria-hidden />
-                        <span className="truncate">{chip.name}</span>
-                        <span className={usersActiveDepartment === chip.name ? 'text-white/55 dk:text-neutral-900/55' : 'text-neutral-400 dk:text-neutral-500'}>{chip.count}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                    {/* Department chips */}
+                    {usersShowChips && (
+                      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter by department">
+                        <button type="button" onClick={() => setUsersDepartment('__all__')} className={`inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors ${usersActiveDepartment === '__all__' ? 'bg-neutral-900 text-white dk:bg-white dk:text-neutral-900' : 'border border-neutral-200 bg-white text-neutral-700 hover:border-neutral-400 dk:border-white/10 dk:bg-white/[0.04] dk:text-neutral-300 dk:hover:border-white/30 dk:hover:text-white'}`}>
+                          <span>All</span>
+                          <span className={usersActiveDepartment === '__all__' ? 'text-white/55 dk:text-neutral-900/55' : 'text-neutral-400 dk:text-neutral-500'}>{usersSearched.length}</span>
+                        </button>
+                        {usersDepartmentChips.map((chip) => (
+                          <button key={chip.name} type="button" onClick={() => setUsersDepartment((c) => c === chip.name ? '__all__' : chip.name)} className={`inline-flex h-8 max-w-full items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors ${usersActiveDepartment === chip.name ? 'bg-neutral-900 text-white dk:bg-white dk:text-neutral-900' : 'border border-neutral-200 bg-white text-neutral-700 hover:border-neutral-400 dk:border-white/10 dk:bg-white/[0.04] dk:text-neutral-300 dk:hover:border-white/30 dk:hover:text-white'}`}>
+                            <span className={`h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] ${usersActiveDepartment === chip.name ? 'border-white/60 dk:border-neutral-900/40' : 'border-neutral-300 dk:border-white/25'}`} aria-hidden />
+                            <span className="truncate">{chip.name}</span>
+                            <span className={usersActiveDepartment === chip.name ? 'text-white/55 dk:text-neutral-900/55' : 'text-neutral-400 dk:text-neutral-500'}>{chip.count}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
-                {/* Content */}
-                {usersFiltered.length === 0 ? (
-                  <p className="py-16 text-center text-sm text-neutral-500 dk:text-neutral-400">No users match your search.</p>
-                ) : usersViewMode === 'table' ? (
-                  usersViewTab === 'dept' ? (
-                    <div className="space-y-8">
-                      {usersByDepartment.map(({ dept, members }) => (
-                        <section key={dept}>
-                          <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500 dk:text-neutral-400">
-                            {dept} <span className="text-neutral-400 dk:text-neutral-500">· {members.length}</span>
-                          </h2>
-                          <div className="overflow-x-auto rounded-lg border border-neutral-200 dk:border-white/10">
-                            <table className="w-full text-left text-sm">
-                              <thead className="border-b border-neutral-200 bg-neutral-50 dk:border-white/10 dk:bg-white/[0.04]">
-                                <tr>
-                                  <th className="w-[20%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Name</th>
-                                  <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Department</th>
-                                  <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Title</th>
-                                  <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Desk Phone</th>
-                                  <th className="w-[8%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Extension</th>
-                                  <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Mobile</th>
-                                  <th className="w-[14%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Email</th>
-                                  <th className="w-[7%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Status</th>
-                                  {canViewUserProfiles && <th className="w-[10%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Access Level</th>}
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-neutral-300 dk:divide-white/10">
-                                {members.map((u) => {
-                                  const raw = u.businessPhones?.[0] || ''; const xIdx = raw.search(/[xX]/); const ext = xIdx > 0 ? raw.slice(xIdx + 1).trim() : ''; const deskPhone = xIdx > 0 ? raw.slice(0, xIdx).trim() : raw;
-                                  return (
+                    {/* Content */}
+                    {usersFiltered.length === 0 ? (
+                      <p className="py-16 text-center text-sm text-neutral-500 dk:text-neutral-400">No users match your search.</p>
+                    ) : usersViewMode === 'table' ? (
+                      usersViewTab === 'dept' ? (
+                        <div className="space-y-8">
+                          {usersByDepartment.map(({ dept, members }) => (
+                            <section key={dept}>
+                              <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500 dk:text-neutral-400">
+                                {dept} <span className="text-neutral-400 dk:text-neutral-500">· {members.length}</span>
+                              </h2>
+                              <div className="overflow-x-auto rounded-lg border border-neutral-200 dk:border-white/10">
+                                <table className="w-full text-left text-sm">
+                                  <thead className="border-b border-neutral-200 bg-neutral-50 dk:border-white/10 dk:bg-white/[0.04]">
+                                    <tr>
+                                      <th className="w-[20%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Name</th>
+                                      <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Department</th>
+                                      <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Title</th>
+                                      <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Desk Phone</th>
+                                      <th className="w-[8%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Extension</th>
+                                      <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Mobile</th>
+                                      <th className="w-[14%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Email</th>
+                                      <th className="w-[7%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Status</th>
+                                      {canViewUserProfiles && <th className="w-[10%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Access Level</th>}
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-neutral-300 dk:divide-white/10">
+                                    {members.map((u) => {
+                                      const raw = u.businessPhones?.[0] || ''; const xIdx = raw.search(/[xX]/); const ext = xIdx > 0 ? raw.slice(xIdx + 1).trim() : ''; const deskPhone = xIdx > 0 ? raw.slice(0, xIdx).trim() : raw;
+                                      return (
+                                        <tr key={u.id} onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className={`transition-colors hover:bg-neutral-50 dk:hover:bg-white/[0.05] ${canViewUserProfiles ? 'cursor-pointer' : ''}`}>
+                                          <td className="px-4 py-3"><div className="flex items-center gap-3"><GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="hsl(var(--text-primary))" /><span className="font-medium text-neutral-900 dk:text-white">{u.name}</span></div></td>
+                                          <td className="px-4 py-3 text-neutral-600 dk:text-neutral-300">{u.department || '—'}</td>
+                                          <td className="px-4 py-3 text-neutral-600 dk:text-neutral-300">{u.jobTitle || '—'}</td>
+                                          <td className="px-4 py-3 font-mono text-xs text-neutral-500 dk:text-neutral-400">{deskPhone ? formatE164ForDisplay(deskPhone) || deskPhone : '—'}</td>
+                                          <td className="px-4 py-3 font-mono text-xs text-neutral-500 dk:text-neutral-400">{ext || '—'}</td>
+                                          <td className="px-4 py-3 font-mono text-xs text-neutral-500 dk:text-neutral-400">{formatE164ForDisplay(u.mobilePhone) || '—'}</td>
+                                          <td className="px-4 py-3 text-neutral-500 dk:text-neutral-400">{u.email || '—'}</td>
+                                          <td className="px-4 py-3"><StatusBadge status={u.status ?? 'Active'} /></td>
+                                          {canViewUserProfiles && <td className="px-4 py-3">{u.email ? <AccessLevelBadge level={accessLevelMap[u.email.toLowerCase()] || ''} /> : <span className="text-text-muted text-xs">—</span>}</td>}
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </section>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto rounded-lg border border-neutral-200 dk:border-white/10">
+                          <table className="w-full text-left text-sm">
+                            <thead className="border-b border-neutral-200 bg-neutral-50 dk:border-white/10 dk:bg-white/[0.04]">
+                              <tr>
+                                <th className="w-[20%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Name</th>
+                                <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Department</th>
+                                <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Title</th>
+                                <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Desk Phone</th>
+                                <th className="w-[8%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Extension</th>
+                                <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Mobile</th>
+                                <th className="w-[14%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Email</th>
+                                <th className="w-[7%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Status</th>
+                                {canViewUserProfiles && <th className="w-[10%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Access Level</th>}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-neutral-300 dk:divide-white/10">
+                              {usersAlphaSorted.map((u) => {
+                                const raw = u.businessPhones?.[0] || ''; const xIdx = raw.search(/[xX]/); const ext = xIdx > 0 ? raw.slice(xIdx + 1).trim() : ''; const deskPhone = xIdx > 0 ? raw.slice(0, xIdx).trim() : raw;
+                                return (
                                   <tr key={u.id} onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className={`transition-colors hover:bg-neutral-50 dk:hover:bg-white/[0.05] ${canViewUserProfiles ? 'cursor-pointer' : ''}`}>
                                     <td className="px-4 py-3"><div className="flex items-center gap-3"><GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="hsl(var(--text-primary))" /><span className="font-medium text-neutral-900 dk:text-white">{u.name}</span></div></td>
                                     <td className="px-4 py-3 text-neutral-600 dk:text-neutral-300">{u.department || '—'}</td>
@@ -2344,596 +2385,562 @@ export function SettingsPage({
                                     <td className="px-4 py-3"><StatusBadge status={u.status ?? 'Active'} /></td>
                                     {canViewUserProfiles && <td className="px-4 py-3">{u.email ? <AccessLevelBadge level={accessLevelMap[u.email.toLowerCase()] || ''} /> : <span className="text-text-muted text-xs">—</span>}</td>}
                                   </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        </section>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto rounded-lg border border-neutral-200 dk:border-white/10">
-                      <table className="w-full text-left text-sm">
-                        <thead className="border-b border-neutral-200 bg-neutral-50 dk:border-white/10 dk:bg-white/[0.04]">
-                          <tr>
-                            <th className="w-[20%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Name</th>
-                            <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Department</th>
-                            <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Title</th>
-                            <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Desk Phone</th>
-                            <th className="w-[8%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Extension</th>
-                            <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Mobile</th>
-                            <th className="w-[14%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Email</th>
-                            <th className="w-[7%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Status</th>
-                            {canViewUserProfiles && <th className="w-[10%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Access Level</th>}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-neutral-300 dk:divide-white/10">
-                          {usersAlphaSorted.map((u) => {
-                            const raw = u.businessPhones?.[0] || ''; const xIdx = raw.search(/[xX]/); const ext = xIdx > 0 ? raw.slice(xIdx + 1).trim() : ''; const deskPhone = xIdx > 0 ? raw.slice(0, xIdx).trim() : raw;
-                            return (
-                            <tr key={u.id} onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className={`transition-colors hover:bg-neutral-50 dk:hover:bg-white/[0.05] ${canViewUserProfiles ? 'cursor-pointer' : ''}`}>
-                              <td className="px-4 py-3"><div className="flex items-center gap-3"><GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="hsl(var(--text-primary))" /><span className="font-medium text-neutral-900 dk:text-white">{u.name}</span></div></td>
-                              <td className="px-4 py-3 text-neutral-600 dk:text-neutral-300">{u.department || '—'}</td>
-                              <td className="px-4 py-3 text-neutral-600 dk:text-neutral-300">{u.jobTitle || '—'}</td>
-                              <td className="px-4 py-3 font-mono text-xs text-neutral-500 dk:text-neutral-400">{deskPhone ? formatE164ForDisplay(deskPhone) || deskPhone : '—'}</td>
-                              <td className="px-4 py-3 font-mono text-xs text-neutral-500 dk:text-neutral-400">{ext || '—'}</td>
-                              <td className="px-4 py-3 font-mono text-xs text-neutral-500 dk:text-neutral-400">{formatE164ForDisplay(u.mobilePhone) || '—'}</td>
-                              <td className="px-4 py-3 text-neutral-500 dk:text-neutral-400">{u.email || '—'}</td>
-                              <td className="px-4 py-3"><StatusBadge status={u.status ?? 'Active'} /></td>
-                              {canViewUserProfiles && <td className="px-4 py-3">{u.email ? <AccessLevelBadge level={accessLevelMap[u.email.toLowerCase()] || ''} /> : <span className="text-text-muted text-xs">—</span>}</td>}
-                            </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )
-                ) : usersViewTab === 'dept' ? (
-                  <div className="space-y-8">
-                    {usersByDepartment.map(({ dept, members }) => (
-                      <section key={dept}>
-                        <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500 dk:text-neutral-400">
-                          {dept} <span className="text-neutral-400 dk:text-neutral-500">· {members.length}</span>
-                        </h2>
-                        <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4 lg:grid-cols-6">
-                          {members.map((u) => (
-                            <button key={u.id} type="button" onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className="group relative flex h-full min-h-[290px] flex-col items-center rounded-lg border-2 border-neutral-900 bg-white px-4 pb-4 pt-5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.75)] transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 dk:border-white/10 dk:bg-elevated dk:shadow-none dk:hover:border-white/25 dk:hover:shadow-[0_8px_24px_rgba(0,0,0,0.6)] dk:focus-visible:ring-white/60">
-                              <img src="/iae_logo.png" alt="" className="absolute top-3 right-3 h-5 w-auto invert dk:invert-0" aria-hidden />
-                              <GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="hsl(var(--text-primary))" className="!w-24 !h-24 !text-2xl" />
-                              <p className="mt-4 w-full text-[15px] font-bold text-neutral-950 break-words leading-tight dk:text-white">{u.name}</p>
-                              {u.department ? <span className="mt-2 max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight dk:border-white/20 dk:text-neutral-200">{u.department}</span> : null}
-                              {u.jobTitle ? <p className="mt-2 w-full text-[13px] font-bold leading-snug text-neutral-600 dk:text-text-secondary">{u.jobTitle}</p> : null}
-                              <div className="min-h-[16px] flex-1" aria-hidden />
-                              {(u.mobilePhone || u.businessPhones?.[0] || u.email) ? (
-                                <div className="w-full min-w-0 border-t border-neutral-200 pt-4 dk:border-white/10">
-                                  <div className="flex flex-col gap-1.5 text-[12px] text-neutral-600 dk:text-neutral-300">
-                                    {u.businessPhones?.[0] ? (() => { const raw = u.businessPhones![0]; const xIdx = raw.search(/[xX]/); const base = xIdx > 0 ? raw.slice(0, xIdx).trim() : raw; const ext = xIdx > 0 ? raw.slice(xIdx + 1).trim() : ''; return (<span className="flex min-w-0 items-center justify-center gap-1.5"><Phone className="h-3.5 w-3.5 shrink-0 text-neutral-400 dk:text-neutral-500" aria-hidden />{base ? <span className="truncate font-mono tracking-tight">{formatE164ForDisplay(base) || base}</span> : null}{ext ? <span className="shrink-0 rounded bg-neutral-900 px-1.5 py-[1px] text-[10px] font-bold text-white dk:bg-white dk:text-neutral-900">x{ext}</span> : null}</span>); })() : null}
-                                    {u.mobilePhone ? <span className="flex min-w-0 items-center justify-center gap-1.5"><Smartphone className="h-3.5 w-3.5 shrink-0 text-neutral-400 dk:text-neutral-500" aria-hidden /><span className="truncate font-mono tracking-tight">{formatE164ForDisplay(u.mobilePhone) || u.mobilePhone}</span></span> : null}
-                                    {u.email ? <span className="flex min-w-0 items-center justify-center gap-1.5"><Mail className="h-3.5 w-3.5 shrink-0 text-neutral-400 dk:text-neutral-500" aria-hidden /><span className="truncate">{u.email}</span></span> : null}
-                                  </div>
-                                </div>
-                              ) : null}
-                            </button>
-                          ))}
+                                );
+                              })}
+                            </tbody>
+                          </table>
                         </div>
-                      </section>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4 lg:grid-cols-6">
-                    {usersAlphaSorted.map((u) => (
-                      <button key={u.id} type="button" onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className="group relative flex h-full min-h-[290px] flex-col items-center rounded-lg border-2 border-neutral-900 bg-white px-4 pb-4 pt-5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 dk:border-white/10 dk:bg-elevated dk:shadow-none dk:hover:border-white/25 dk:hover:shadow-[0_8px_24px_rgba(0,0,0,0.6)] dk:focus-visible:ring-white/60">
-                        <img src="/iae_logo.png" alt="" className="absolute top-3 right-3 h-5 w-auto invert dk:invert-0" aria-hidden />
-                        <GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="hsl(var(--text-primary))" className="!w-24 !h-24 !text-2xl" />
-                        <p className="mt-4 w-full text-[15px] font-bold text-neutral-950 break-words leading-tight dk:text-white">{u.name}</p>
-                        {u.department ? <span className="mt-2 max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight dk:border-white/20 dk:text-neutral-200">{u.department}</span> : null}
-                        {u.jobTitle ? <p className="mt-2 w-full text-[13px] font-bold leading-snug text-neutral-600 dk:text-text-secondary">{u.jobTitle}</p> : null}
-                        <div className="min-h-[16px] flex-1" aria-hidden />
-                        {(u.mobilePhone || u.businessPhones?.[0] || u.email) ? (
-                          <div className="w-full min-w-0 border-t border-neutral-200 pt-4 dk:border-white/10">
-                            <div className="flex flex-col gap-1.5 text-[12px] text-neutral-600 dk:text-neutral-300">
-                              {u.businessPhones?.[0] ? (() => { const raw = u.businessPhones![0]; const xIdx = raw.search(/[xX]/); const base = xIdx > 0 ? raw.slice(0, xIdx).trim() : raw; const ext = xIdx > 0 ? raw.slice(xIdx + 1).trim() : ''; return (<span className="flex min-w-0 items-center justify-center gap-1.5"><Phone className="h-3.5 w-3.5 shrink-0 text-neutral-400 dk:text-neutral-500" aria-hidden />{base ? <span className="truncate font-mono tracking-tight">{formatE164ForDisplay(base) || base}</span> : null}{ext ? <span className="shrink-0 rounded bg-neutral-900 px-1.5 py-[1px] text-[10px] font-bold text-white dk:bg-white dk:text-neutral-900">x{ext}</span> : null}</span>); })() : null}
-                              {u.mobilePhone ? <span className="flex min-w-0 items-center justify-center gap-1.5"><Smartphone className="h-3.5 w-3.5 shrink-0 text-neutral-400 dk:text-neutral-500" aria-hidden /><span className="truncate font-mono tracking-tight">{formatE164ForDisplay(u.mobilePhone) || u.mobilePhone}</span></span> : null}
-                              {u.email ? <span className="flex min-w-0 items-center justify-center gap-1.5"><Mail className="h-3.5 w-3.5 shrink-0 text-neutral-400 dk:text-neutral-500" aria-hidden /><span className="truncate">{u.email}</span></span> : null}
+                      )
+                    ) : usersViewTab === 'dept' ? (
+                      <div className="space-y-8">
+                        {usersByDepartment.map(({ dept, members }) => (
+                          <section key={dept}>
+                            <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500 dk:text-neutral-400">
+                              {dept} <span className="text-neutral-400 dk:text-neutral-500">· {members.length}</span>
+                            </h2>
+                            <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4 lg:grid-cols-6">
+                              {members.map((u) => (
+                                <button key={u.id} type="button" onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className="group relative flex h-full min-h-[290px] flex-col items-center rounded-lg border-2 border-neutral-900 bg-white px-4 pb-4 pt-5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.75)] transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 dk:border-white/10 dk:bg-elevated dk:shadow-none dk:hover:border-white/25 dk:hover:shadow-[0_8px_24px_rgba(0,0,0,0.6)] dk:focus-visible:ring-white/60">
+                                  <img src="/iae_logo.png" alt="" className="absolute top-3 right-3 h-5 w-auto invert dk:invert-0" aria-hidden />
+                                  <GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="hsl(var(--text-primary))" className="!w-24 !h-24 !text-2xl" />
+                                  <p className="mt-4 w-full text-[15px] font-bold text-neutral-950 break-words leading-tight dk:text-white">{u.name}</p>
+                                  {u.department ? <span className="mt-2 max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight dk:border-white/20 dk:text-neutral-200">{u.department}</span> : null}
+                                  {u.jobTitle ? <p className="mt-2 w-full text-[13px] font-bold leading-snug text-neutral-600 dk:text-text-secondary">{u.jobTitle}</p> : null}
+                                  <div className="min-h-[16px] flex-1" aria-hidden />
+                                  {(u.mobilePhone || u.businessPhones?.[0] || u.email) ? (
+                                    <div className="w-full min-w-0 border-t border-neutral-200 pt-4 dk:border-white/10">
+                                      <div className="flex flex-col gap-1.5 text-[12px] text-neutral-600 dk:text-neutral-300">
+                                        {u.businessPhones?.[0] ? (() => { const raw = u.businessPhones![0]; const xIdx = raw.search(/[xX]/); const base = xIdx > 0 ? raw.slice(0, xIdx).trim() : raw; const ext = xIdx > 0 ? raw.slice(xIdx + 1).trim() : ''; return (<span className="flex min-w-0 items-center justify-center gap-1.5"><Phone className="h-3.5 w-3.5 shrink-0 text-neutral-400 dk:text-neutral-500" aria-hidden />{base ? <span className="truncate font-mono tracking-tight">{formatE164ForDisplay(base) || base}</span> : null}{ext ? <span className="shrink-0 rounded bg-neutral-900 px-1.5 py-[1px] text-[10px] font-bold text-white dk:bg-white dk:text-neutral-900">x{ext}</span> : null}</span>); })() : null}
+                                        {u.mobilePhone ? <span className="flex min-w-0 items-center justify-center gap-1.5"><Smartphone className="h-3.5 w-3.5 shrink-0 text-neutral-400 dk:text-neutral-500" aria-hidden /><span className="truncate font-mono tracking-tight">{formatE164ForDisplay(u.mobilePhone) || u.mobilePhone}</span></span> : null}
+                                        {u.email ? <span className="flex min-w-0 items-center justify-center gap-1.5"><Mail className="h-3.5 w-3.5 shrink-0 text-neutral-400 dk:text-neutral-500" aria-hidden /><span className="truncate">{u.email}</span></span> : null}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </button>
+                              ))}
                             </div>
-                          </div>
-                        ) : null}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                <div className="flex items-center justify-end text-xs text-text-secondary px-1">
-                  Showing <span className="font-medium text-text-primary tabular-nums ml-1">{usersFiltered.length.toLocaleString()}</span><span className="ml-1">of {adminUsersQuery.data.length.toLocaleString()} total users</span>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      )}
-
-      {tab === 'Lookup Tables' && (
-        <div className="space-y-4">
-          <TabBar tabs={LOOKUP_TABLES.map((t) => t.label)} active={lookupTab} onChange={setLookupTab} />
-
-          {lookupListQuery.isError && (
-            <div className="text-sm text-ems-coral border border-ems-coral/30 rounded-md px-3 py-2 bg-ems-coral-dim">
-              Could not load {activeLookupConfig.label}: {friendlyApiError(lookupListQuery.error)}
-            </div>
-          )}
-
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-3">
-              <h3 className="text-base font-semibold text-text-primary">{activeLookupConfig.label}</h3>
-              <span className="text-xs bg-elevated px-2 py-0.5 rounded text-text-secondary tabular-nums">
-                {lookupTableBusyOverlay ? '…' : lookupTotal.toLocaleString()}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowAddLookup(true)}
-              disabled={lookupIsLoading}
-              className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              + Add Row
-            </button>
-          </div>
-
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-            <div className="w-full sm:w-80">
-              <div className="relative w-full min-w-0" ref={lookupSearchWrapperRef}>
-                <div className="flex min-w-0 items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
-                  <input
-                    type="text"
-                    className="min-w-0 flex-1 cursor-text bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:cursor-not-allowed"
-                    placeholder={`Search ${activeLookupConfig.label}...`}
-                    value={lookupSearchInput}
-                    disabled={lookupIsLoading}
-                    autoComplete="off"
-                    spellCheck={false}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setLookupSearchInput(v);
-                      setShowLookupSuggestions(true);
-                      if (!v.trim()) {
-                        setLookupSearch('');
-                      }
-                    }}
-                    onFocus={() => {
-                      if (lookupSearchInput.trim()) setShowLookupSuggestions(true);
-                    }}
-                    onBlur={commitLookupSearch}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') commitLookupSearch();
-                      if (e.key === 'Escape') setShowLookupSuggestions(false);
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={commitLookupSearch}
-                    className="shrink-0 cursor-pointer px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors"
-                    title="Search"
-                  >
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <circle cx="11" cy="11" r="8" strokeWidth="2" />
-                      <path d="m21 21-4.35-4.35" strokeWidth="2" strokeLinecap="round" />
-                    </svg>
-                  </button>
-                </div>
-                {lookupSuggestPanelOpen ? (
-                  <div
-                    className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden"
-                    onMouseDown={(e) => e.preventDefault()}
-                    aria-busy={lookupSuggestionsQuery.isFetching}
-                  >
-                    {lookupSuggestionsQuery.isError ? (
-                      <div className="px-3 py-2 text-sm text-ems-coral" role="alert">
-                        Could not load suggestions. Try again in a moment.
+                          </section>
+                        ))}
                       </div>
-                    ) : null}
-                    {!lookupSuggestionsQuery.isError && lookupSuggestionsQuery.isFetching ? (
-                      <div
-                        className="flex items-center gap-2 px-3 py-2.5 text-sm text-text-muted"
-                        role="status"
-                        aria-live="polite"
-                      >
-                        <Loader2
-                          className="h-4 w-4 shrink-0 animate-spin text-ems-accent"
-                          aria-hidden
-                        />
-                        <span>Searching…</span>
+                    ) : (
+                      <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4 lg:grid-cols-6">
+                        {usersAlphaSorted.map((u) => (
+                          <button key={u.id} type="button" onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className="group relative flex h-full min-h-[290px] flex-col items-center rounded-lg border-2 border-neutral-900 bg-white px-4 pb-4 pt-5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 dk:border-white/10 dk:bg-elevated dk:shadow-none dk:hover:border-white/25 dk:hover:shadow-[0_8px_24px_rgba(0,0,0,0.6)] dk:focus-visible:ring-white/60">
+                            <img src="/iae_logo.png" alt="" className="absolute top-3 right-3 h-5 w-auto invert dk:invert-0" aria-hidden />
+                            <GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="hsl(var(--text-primary))" className="!w-24 !h-24 !text-2xl" />
+                            <p className="mt-4 w-full text-[15px] font-bold text-neutral-950 break-words leading-tight dk:text-white">{u.name}</p>
+                            {u.department ? <span className="mt-2 max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight dk:border-white/20 dk:text-neutral-200">{u.department}</span> : null}
+                            {u.jobTitle ? <p className="mt-2 w-full text-[13px] font-bold leading-snug text-neutral-600 dk:text-text-secondary">{u.jobTitle}</p> : null}
+                            <div className="min-h-[16px] flex-1" aria-hidden />
+                            {(u.mobilePhone || u.businessPhones?.[0] || u.email) ? (
+                              <div className="w-full min-w-0 border-t border-neutral-200 pt-4 dk:border-white/10">
+                                <div className="flex flex-col gap-1.5 text-[12px] text-neutral-600 dk:text-neutral-300">
+                                  {u.businessPhones?.[0] ? (() => { const raw = u.businessPhones![0]; const xIdx = raw.search(/[xX]/); const base = xIdx > 0 ? raw.slice(0, xIdx).trim() : raw; const ext = xIdx > 0 ? raw.slice(xIdx + 1).trim() : ''; return (<span className="flex min-w-0 items-center justify-center gap-1.5"><Phone className="h-3.5 w-3.5 shrink-0 text-neutral-400 dk:text-neutral-500" aria-hidden />{base ? <span className="truncate font-mono tracking-tight">{formatE164ForDisplay(base) || base}</span> : null}{ext ? <span className="shrink-0 rounded bg-neutral-900 px-1.5 py-[1px] text-[10px] font-bold text-white dk:bg-white dk:text-neutral-900">x{ext}</span> : null}</span>); })() : null}
+                                  {u.mobilePhone ? <span className="flex min-w-0 items-center justify-center gap-1.5"><Smartphone className="h-3.5 w-3.5 shrink-0 text-neutral-400 dk:text-neutral-500" aria-hidden /><span className="truncate font-mono tracking-tight">{formatE164ForDisplay(u.mobilePhone) || u.mobilePhone}</span></span> : null}
+                                  {u.email ? <span className="flex min-w-0 items-center justify-center gap-1.5"><Mail className="h-3.5 w-3.5 shrink-0 text-neutral-400 dk:text-neutral-500" aria-hidden /><span className="truncate">{u.email}</span></span> : null}
+                                </div>
+                              </div>
+                            ) : null}
+                          </button>
+                        ))}
                       </div>
-                    ) : null}
-                    {!lookupSuggestionsQuery.isError &&
-                      !lookupSuggestionsQuery.isFetching &&
-                      lookupSuggestions.length > 0
-                      ? lookupSuggestions.map((suggestion, i) => (
-                        <button
-                          key={`${i}-${suggestion}`}
-                          type="button"
-                          className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            setLookupSearchInput(suggestion);
-                            setLookupSearch(suggestion);
-                            setShowLookupSuggestions(false);
-                          }}
-                        >
-                          {suggestion}
-                        </button>
-                      ))
-                      : null}
-                    {!lookupSuggestionsQuery.isError &&
-                      !lookupSuggestionsQuery.isFetching &&
-                      lookupSuggestionsQuery.isFetched &&
-                      lookupSuggestions.length === 0 ? (
-                      <div className="px-3 py-2.5 text-sm text-text-muted">No matching results</div>
-                    ) : null}
+                    )}
+
+                    <div className="flex items-center justify-end text-xs text-text-secondary px-1">
+                      Showing <span className="font-medium text-text-primary tabular-nums ml-1">{usersFiltered.length.toLocaleString()}</span><span className="ml-1">of {adminUsersQuery.data.length.toLocaleString()} total users</span>
+                    </div>
                   </div>
                 ) : null}
               </div>
             </div>
-            {hasActiveLookupFilters ? (
-              <button
-                type="button"
-                onClick={resetLookupFilters}
-                disabled={lookupIsLoading}
-                className="inline-flex h-[34px] shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Reset lookup search"
-              >
-                <RotateCcw className="h-3.5 w-3.5" aria-hidden />
-                Reset
-              </button>
-            ) : null}
-          </div>
+          )}
 
-          {lookupTableBusyOverlay ? (
-            <div
-              className="flex items-center gap-2 rounded-md border border-border bg-elevated px-3 py-2 text-sm text-text-secondary"
-              role="status"
-              aria-live="polite"
-            >
-              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ems-accent" aria-hidden />
-              <span>Loading rows…</span>
-            </div>
-          ) : null}
+          {tab === 'Lookup Tables' && (
+            <div className="space-y-4">
+              <TabBar tabs={LOOKUP_TABLES.map((t) => t.label)} active={lookupTab} onChange={setLookupTab} />
 
-          <div
-            className={`relative bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip ${
-              lookupTableBusyOverlay ? 'min-h-[240px]' : ''
-            }`}
-          >
-            <table className="w-full text-sm min-w-[680px]">
-              <thead>
-                <tr className="text-text-muted text-xs border-b border-border bg-surface">
-                  {activeLookupConfig.columns.map((col) => (
-                    <th key={col.field} className="text-left py-2.5 px-3">
+              {lookupListQuery.isError && (
+                <div className="text-sm text-ems-coral border border-ems-coral/30 rounded-md px-3 py-2 bg-ems-coral-dim">
+                  Could not load {activeLookupConfig.label}: {friendlyApiError(lookupListQuery.error)}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-3">
+                  <h3 className="text-base font-semibold text-text-primary">{activeLookupConfig.label}</h3>
+                  <span className="text-xs bg-elevated px-2 py-0.5 rounded text-text-secondary tabular-nums">
+                    {lookupTableBusyOverlay ? '…' : lookupTotal.toLocaleString()}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddLookup(true)}
+                  disabled={lookupIsLoading}
+                  className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  + Add Row
+                </button>
+              </div>
+
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                <div className="w-full sm:w-80">
+                  <div className="relative w-full min-w-0" ref={lookupSearchWrapperRef}>
+                    <div className="flex min-w-0 items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
+                      <input
+                        type="text"
+                        className="min-w-0 flex-1 cursor-text bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:cursor-not-allowed"
+                        placeholder={`Search ${activeLookupConfig.label}...`}
+                        value={lookupSearchInput}
+                        disabled={lookupIsLoading}
+                        autoComplete="off"
+                        spellCheck={false}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setLookupSearchInput(v);
+                          setShowLookupSuggestions(true);
+                          if (!v.trim()) {
+                            setLookupSearch('');
+                          }
+                        }}
+                        onFocus={() => {
+                          if (lookupSearchInput.trim()) setShowLookupSuggestions(true);
+                        }}
+                        onBlur={commitLookupSearch}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') commitLookupSearch();
+                          if (e.key === 'Escape') setShowLookupSuggestions(false);
+                        }}
+                      />
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1 font-medium text-text-muted hover:text-text-primary"
-                        onClick={() => toggleSort(col.sortBy)}
+                        onClick={commitLookupSearch}
+                        className="shrink-0 cursor-pointer px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors"
+                        title="Search"
                       >
-                        {col.label}
-                        {lookupSort.sortBy === col.sortBy ? (lookupSort.sortDir === 'asc' ? '↑' : '↓') : ''}
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <circle cx="11" cy="11" r="8" strokeWidth="2" />
+                          <path d="m21 21-4.35-4.35" strokeWidth="2" strokeLinecap="round" />
+                        </svg>
                       </button>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {lookupDisplayRows.length === 0 && !lookupTableBusyOverlay && (
-                  <tr>
-                    <td
-                      colSpan={activeLookupConfig.columns.length}
-                      className="py-12 px-3 text-center text-sm text-text-muted"
-                    >
-                      No rows match your search.
-                    </td>
-                  </tr>
-                )}
-                {lookupDisplayRows.map((row, rowIndex) => (
-                  <tr
-                    key={getLookupRowElementKey(row, activeLookupConfig, rowIndex)}
-                    className="border-b border-border/50 hover:bg-hover cursor-pointer"
-                    onClick={() => {
-                      setSelectedLookupRow(row);
-                      setDetailsTab('Overview');
-                    }}
+                    </div>
+                    {lookupSuggestPanelOpen ? (
+                      <div
+                        className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden"
+                        onMouseDown={(e) => e.preventDefault()}
+                        aria-busy={lookupSuggestionsQuery.isFetching}
+                      >
+                        {lookupSuggestionsQuery.isError ? (
+                          <div className="px-3 py-2 text-sm text-ems-coral" role="alert">
+                            Could not load suggestions. Try again in a moment.
+                          </div>
+                        ) : null}
+                        {!lookupSuggestionsQuery.isError && lookupSuggestionsQuery.isFetching ? (
+                          <div
+                            className="flex items-center gap-2 px-3 py-2.5 text-sm text-text-muted"
+                            role="status"
+                            aria-live="polite"
+                          >
+                            <Loader2
+                              className="h-4 w-4 shrink-0 animate-spin text-ems-accent"
+                              aria-hidden
+                            />
+                            <span>Searching…</span>
+                          </div>
+                        ) : null}
+                        {!lookupSuggestionsQuery.isError &&
+                          !lookupSuggestionsQuery.isFetching &&
+                          lookupSuggestions.length > 0
+                          ? lookupSuggestions.map((suggestion, i) => (
+                            <button
+                              key={`${i}-${suggestion}`}
+                              type="button"
+                              className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setLookupSearchInput(suggestion);
+                                setLookupSearch(suggestion);
+                                setShowLookupSuggestions(false);
+                              }}
+                            >
+                              {suggestion}
+                            </button>
+                          ))
+                          : null}
+                        {!lookupSuggestionsQuery.isError &&
+                          !lookupSuggestionsQuery.isFetching &&
+                          lookupSuggestionsQuery.isFetched &&
+                          lookupSuggestions.length === 0 ? (
+                          <div className="px-3 py-2.5 text-sm text-text-muted">No matching results</div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                {hasActiveLookupFilters ? (
+                  <button
+                    type="button"
+                    onClick={resetLookupFilters}
+                    disabled={lookupIsLoading}
+                    className="inline-flex h-[34px] shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Reset lookup search"
                   >
-                    {activeLookupConfig.columns.map((col) => (
-                      <td key={col.field} className="py-2.5 px-3 text-text-primary">
-                        {renderLookupCell(row, col.field)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {lookupTableBusyOverlay ? (
-              <div
-                className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 px-4 py-8 backdrop-blur-[0.5px]"
-                aria-busy="true"
-                aria-live="polite"
-              >
-                <div className="inline-flex items-center gap-2.5 rounded-lg border border-border bg-card px-4 py-2.5 shadow-lg text-sm text-text-secondary">
-                  <Loader2
-                    className="h-5 w-5 shrink-0 animate-spin text-ems-accent"
-                    aria-hidden
-                  />
+                    <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                    Reset
+                  </button>
+                ) : null}
+              </div>
+
+              {lookupTableBusyOverlay ? (
+                <div
+                  className="flex items-center gap-2 rounded-md border border-border bg-elevated px-3 py-2 text-sm text-text-secondary"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ems-accent" aria-hidden />
                   <span>Loading rows…</span>
                 </div>
-              </div>
-            ) : null}
-          </div>
+              ) : null}
 
-          {lookupTotal > 0 && (
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
-              <p className="tabular-nums">
-                Showing <span className="text-text-primary font-medium">{rangeStart}–{rangeEnd}</span> of{' '}
-                <span className="text-text-primary font-medium">{lookupTotal.toLocaleString()}</span>
-                <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-text-muted">
-                  <span aria-hidden>·</span>
-                  <PageSizeSelect value={lookupPageSize} onChange={setLookupPageSize} disabled={lookupIsLoading} />
-                  <span>per page</span>
-                </span>
-              </p>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
-                  disabled={pageClamped <= 1 || lookupIsLoading}
-                  onClick={() => setLookupPage((p) => Math.max(1, p - 1))}
-                >
-                  Previous
-                </button>
-                <span className="text-text-muted tabular-nums px-1">
-                  Page {pageClamped} / {lookupPageCount}
-                </span>
-                <button
-                  type="button"
-                  className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
-                  disabled={pageClamped >= lookupPageCount || lookupIsLoading}
-                  onClick={() => setLookupPage((p) => Math.min(lookupPageCount, p + 1))}
-                >
-                  Next
-                </button>
+              <div
+                className={`relative bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip ${lookupTableBusyOverlay ? 'min-h-[240px]' : ''
+                  }`}
+              >
+                <table className="w-full text-sm min-w-[680px]">
+                  <thead>
+                    <tr className="text-text-muted text-xs border-b border-border bg-surface">
+                      {activeLookupConfig.columns.map((col) => (
+                        <th key={col.field} className="text-left py-2.5 px-3">
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 font-medium text-text-muted hover:text-text-primary"
+                            onClick={() => toggleSort(col.sortBy)}
+                          >
+                            {col.label}
+                            {lookupSort.sortBy === col.sortBy ? (lookupSort.sortDir === 'asc' ? '↑' : '↓') : ''}
+                          </button>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lookupDisplayRows.length === 0 && !lookupTableBusyOverlay && (
+                      <tr>
+                        <td
+                          colSpan={activeLookupConfig.columns.length}
+                          className="py-12 px-3 text-center text-sm text-text-muted"
+                        >
+                          No rows match your search.
+                        </td>
+                      </tr>
+                    )}
+                    {lookupDisplayRows.map((row, rowIndex) => (
+                      <tr
+                        key={getLookupRowElementKey(row, activeLookupConfig, rowIndex)}
+                        className="border-b border-border/50 hover:bg-hover cursor-pointer"
+                        onClick={() => {
+                          setSelectedLookupRow(row);
+                          setDetailsTab('Overview');
+                        }}
+                      >
+                        {activeLookupConfig.columns.map((col) => (
+                          <td key={col.field} className="py-2.5 px-3 text-text-primary">
+                            {renderLookupCell(row, col.field)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {lookupTableBusyOverlay ? (
+                  <div
+                    className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 px-4 py-8 backdrop-blur-[0.5px]"
+                    aria-busy="true"
+                    aria-live="polite"
+                  >
+                    <div className="inline-flex items-center gap-2.5 rounded-lg border border-border bg-card px-4 py-2.5 shadow-lg text-sm text-text-secondary">
+                      <Loader2
+                        className="h-5 w-5 shrink-0 animate-spin text-ems-accent"
+                        aria-hidden
+                      />
+                      <span>Loading rows…</span>
+                    </div>
+                  </div>
+                ) : null}
               </div>
-            </div>
-          )}
-        </div>
-      )}
 
-      {tab === 'System' && (
-        <div className="bg-card border border-border rounded-lg p-4">
-          <div className="space-y-3 text-sm">
-            {[
-              { label: 'Application Version', value: '1.0.0-beta' },
-              { label: 'Environment', value: 'Production' },
-              { label: 'Database', value: 'Azure SQL — EngagementDB_Dev' },
-              { label: 'DB Host', value: 'engagementdb-sql-dev.database.windows.net' },
-              { label: 'Auth Provider', value: 'Azure Active Directory' },
-              { label: 'Active Users', value: `${adminUsersQuery.data?.length ?? users.length} users` },
-            ].map((r) => (
-              <div key={r.label} className="flex justify-between border-b border-border/50 pb-2">
-                <span className="text-text-muted">{r.label}</span>
-                <span className="text-text-primary font-mono">{r.value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {editUser && (
-        <Modal title="Edit User" onClose={() => setEditUser(null)} width={500}>
-          <UserForm
-            initial={editUser}
-            onSave={(u) => {
-              onUpdateUsers(users.map((x) => (x.id === u.id ? u : x)));
-              setEditUser(null);
-              addToast('User updated', 'success');
-            }}
-            onCancel={() => setEditUser(null)}
-          />
-        </Modal>
-      )}
-
-      {showAddLookup && (
-        <Modal
-          title={`Add ${activeLookupConfig.label}`}
-          onClose={() => setShowAddLookup(false)}
-          width={560}
-        >
-          <LookupRowForm
-            config={activeLookupConfig}
-            companies={lookupDepsQuery.data?.companies ?? []}
-            companyOptions={companyOptions}
-            companyTypeOptions={companyTypeOptions}
-            serviceOptions={serviceOptions}
-            departmentOptions={departmentOptions}
-            roleOptions={roleOptions}
-            loadingDependencies={lookupDepsQuery.isPending}
-            saving={upsertLookupMut.isPending}
-            onCancel={() => setShowAddLookup(false)}
-            onSave={async (payload) => {
-              try {
-                await upsertLookupMut.mutateAsync({ mode: 'create', body: payload });
-                setShowAddLookup(false);
-                addToast(`${activeLookupConfig.label} row created.`, 'success');
-              } catch (error) {
-                addToast(friendlyApiError(error, 'Could not create row.'), 'error');
-              }
-            }}
-          />
-        </Modal>
-      )}
-
-      <AlertDialog
-        open={deleteLookupRow !== null}
-        onOpenChange={(open) => {
-          if (!open && !deleteLookupMut.isPending) setDeleteLookupRow(null);
-        }}
-      >
-        <AlertDialogContent className="z-[340] border-border bg-card text-text-primary shadow-xl sm:max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-text-primary font-semibold text-lg">
-              Remove this {activeLookupConfig.label} row?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
-              You’re about to remove{' '}
-              <span className="font-medium text-text-primary">
-                {deleteLookupRow
-                  ? String(
-                    deleteLookupRow[
-                    activeLookupConfig.nameField ?? activeLookupConfig.idField
-                    ] ?? '',
-                  ).trim() ||
-                  `${activeLookupConfig.label} #${getRowId(deleteLookupRow, activeLookupConfig)}`
-                  : 'this row'}
-              </span>{' '}
-              from the database.
-            </AlertDialogDescription>
-            {activeLookupKey === 'department-roles' && deleteContactUsage != null && deleteContactUsage.length > 0 && (
-              <div className="mt-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
-                <p className="font-medium mb-1">
-                  Cannot remove — {deleteContactUsage.length} contact{deleteContactUsage.length === 1 ? '' : 's'} currently use{deleteContactUsage.length === 1 ? 's' : ''} this mapping:
-                </p>
-                <ul className="max-h-40 overflow-y-auto space-y-0.5 pl-4 list-disc text-xs">
-                  {deleteContactUsage.map((c, i) => (
-                    <li key={i}>
-                      {c.firstName} {c.lastName} — {c.roleName} @ {c.companyName}{c.source === 'IAE' ? ' (IAE)' : ''}
-                    </li>
-                  ))}
-                </ul>
-                <p className="mt-1 text-xs opacity-80">Remove this department–role mapping from the contacts listed above before deleting it.</p>
-              </div>
-            )}
-            {activeLookupKey === 'department-roles' && deleteContactUsage != null && deleteContactUsage.length === 0 && (
-              <p className="mt-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
-                No contacts are using this mapping — safe to remove.
-              </p>
-            )}
-            {activeLookupKey === 'company-type-services' && deleteCompanyTypeUsage != null && deleteCompanyTypeUsage.length > 0 && (
-              <div className="mt-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
-                <p className="font-medium mb-1">
-                  Cannot remove — {deleteCompanyTypeUsage.length} compan{deleteCompanyTypeUsage.length === 1 ? 'y' : 'ies'} currently use{deleteCompanyTypeUsage.length === 1 ? 's' : ''} this mapping:
-                </p>
-                <ul className="max-h-40 overflow-y-auto space-y-0.5 pl-4 list-disc text-xs">
-                  {deleteCompanyTypeUsage.map((c, i) => (
-                    <li key={i}>
-                      {c.companyName} — {c.serviceName}
-                    </li>
-                  ))}
-                </ul>
-                <p className="mt-1 text-xs opacity-80">Remove this company type–service mapping from the companies listed above before deleting it.</p>
-              </div>
-            )}
-            {activeLookupKey === 'company-type-services' && deleteCompanyTypeUsage != null && deleteCompanyTypeUsage.length === 0 && (
-              <p className="mt-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
-                No companies are using this mapping — safe to remove.
-              </p>
-            )}
-          </AlertDialogHeader>
-          {deleteLookupMut.isPending && (
-            <div
-              className="flex items-center gap-2.5 rounded-lg border border-border border-dashed bg-surface/60 px-3 py-2.5 text-sm text-text-secondary"
-              role="status"
-              aria-live="polite"
-            >
-              <Loader2
-                className="h-4 w-4 shrink-0 animate-spin text-ems-accent"
-                aria-hidden
-              />
-              <span>Removing row…</span>
-            </div>
-          )}
-          <AlertDialogFooter className="gap-2 sm:gap-2">
-            <AlertDialogCancel
-              disabled={deleteLookupMut.isPending}
-              className="border-border bg-elevated text-text-primary hover:bg-hover mt-0"
-            >
-              Cancel
-            </AlertDialogCancel>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={deleteLookupMut.isPending || (activeLookupKey === 'department-roles' && (deleteContactUsage === null || deleteContactUsage.length > 0)) || (activeLookupKey === 'company-type-services' && (deleteCompanyTypeUsage === null || deleteCompanyTypeUsage.length > 0))}
-              className="bg-ems-coral text-white hover:bg-ems-coral/90 sm:ml-0"
-              onClick={() => void confirmDeleteLookup()}
-            >
-              {deleteLookupMut.isPending ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                  Removing…
-                </>
-              ) : (
-                'Yes, remove row'
+              {lookupTotal > 0 && (
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
+                  <p className="tabular-nums">
+                    Showing <span className="text-text-primary font-medium">{rangeStart}–{rangeEnd}</span> of{' '}
+                    <span className="text-text-primary font-medium">{lookupTotal.toLocaleString()}</span>
+                    <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-text-muted">
+                      <span aria-hidden>·</span>
+                      <PageSizeSelect value={lookupPageSize} onChange={setLookupPageSize} disabled={lookupIsLoading} />
+                      <span>per page</span>
+                    </span>
+                  </p>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
+                      disabled={pageClamped <= 1 || lookupIsLoading}
+                      onClick={() => setLookupPage((p) => Math.max(1, p - 1))}
+                    >
+                      Previous
+                    </button>
+                    <span className="text-text-muted tabular-nums px-1">
+                      Page {pageClamped} / {lookupPageCount}
+                    </span>
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
+                      disabled={pageClamped >= lookupPageCount || lookupIsLoading}
+                      onClick={() => setLookupPage((p) => Math.min(lookupPageCount, p + 1))}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
               )}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {selectedLookupRow && (
-        <Drawer onClose={() => setSelectedLookupRow(null)} width={980}>
-          <div className="p-4 border-b border-border flex items-center gap-3">
-            <Avatar name={selectedLookupTitle || activeLookupConfig.label} size="lg" />
-            <div className="flex-1 min-w-0">
-              <h2 className="text-lg font-semibold text-text-primary truncate">
-                {selectedLookupTitle}
-              </h2>
-              <div className="text-xs text-text-muted mt-1">{activeLookupConfig.label}</div>
             </div>
-            <button
-              type="button"
-              onClick={() => setDeleteLookupRow(selectedLookupRow)}
-              title={`Delete this ${activeLookupConfig.label}`}
-              className="p-1.5 text-text-muted hover:text-ems-coral hover:bg-ems-coral-dim rounded-md transition-colors"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedLookupRow(null)}
-              className="text-text-muted hover:text-text-secondary text-lg p-1"
-            >
-              ✕
-            </button>
-          </div>
+          )}
 
-          <TabBar tabs={['Overview']} active={detailsTab} onChange={setDetailsTab} />
+          {tab === 'AI Assistant' && (
+            <div className="bg-card border border-border rounded-lg p-5">
+              <AiSettingsPanel addToast={addToast} />
+            </div>
+          )}
 
-          <div className="p-4">
-            <LookupDetailsEditor
-              key={`${activeLookupKey}-${selectedLookupId ?? 'none'}`}
-              config={activeLookupConfig}
-              row={selectedLookupRow}
-              companies={lookupDepsQuery.data?.companies ?? []}
-              companyOptions={companyOptions}
-              companyTypeOptions={companyTypeOptions}
-              serviceOptions={serviceOptions}
-              departmentOptions={departmentOptions}
-              roleOptions={roleOptions}
-              loadingDependencies={lookupDepsQuery.isPending}
-              saving={upsertLookupMut.isPending}
-              onSave={async (payload) => {
-                try {
-                  const updated = await upsertLookupMut.mutateAsync({
-                    mode: 'update',
-                    id: getRowId(selectedLookupRow, activeLookupConfig),
-                    body: payload,
-                  });
-                  setSelectedLookupRow(updated);
-                  addToast(`${activeLookupConfig.label} row updated.`, 'success');
-                } catch (error) {
-                  addToast(friendlyApiError(error, 'Could not update row.'), 'error');
-                }
-              }}
-            />
-          </div>
-        </Drawer>
-      )}
-      </>
+          {tab === 'System' && (
+            <div className="bg-card border border-border rounded-lg p-4">
+              <div className="space-y-3 text-sm">
+                {[
+                  { label: 'Application Version', value: '1.0.0-beta' },
+                  { label: 'Environment', value: 'Production' },
+                  { label: 'Database', value: 'Azure SQL — EngagementDB_Dev' },
+                  { label: 'DB Host', value: 'engagementdb-sql-dev.database.windows.net' },
+                  { label: 'Auth Provider', value: 'Azure Active Directory' },
+                  { label: 'Active Users', value: `${adminUsersQuery.data?.length ?? users.length} users` },
+                ].map((r) => (
+                  <div key={r.label} className="flex justify-between border-b border-border/50 pb-2">
+                    <span className="text-text-muted">{r.label}</span>
+                    <span className="text-text-primary font-mono">{r.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {editUser && (
+            <Modal title="Edit User" onClose={() => setEditUser(null)} width={500}>
+              <UserForm
+                initial={editUser}
+                onSave={(u) => {
+                  onUpdateUsers(users.map((x) => (x.id === u.id ? u : x)));
+                  setEditUser(null);
+                  addToast('User updated', 'success');
+                }}
+                onCancel={() => setEditUser(null)}
+              />
+            </Modal>
+          )}
+
+          {showAddLookup && (
+            <Modal
+              title={`Add ${activeLookupConfig.label}`}
+              onClose={() => setShowAddLookup(false)}
+              width={560}
+            >
+              <LookupRowForm
+                config={activeLookupConfig}
+                companies={lookupDepsQuery.data?.companies ?? []}
+                companyOptions={companyOptions}
+                companyTypeOptions={companyTypeOptions}
+                serviceOptions={serviceOptions}
+                departmentOptions={departmentOptions}
+                roleOptions={roleOptions}
+                loadingDependencies={lookupDepsQuery.isPending}
+                saving={upsertLookupMut.isPending}
+                onCancel={() => setShowAddLookup(false)}
+                onSave={async (payload) => {
+                  try {
+                    await upsertLookupMut.mutateAsync({ mode: 'create', body: payload });
+                    setShowAddLookup(false);
+                    addToast(`${activeLookupConfig.label} row created.`, 'success');
+                  } catch (error) {
+                    addToast(friendlyApiError(error, 'Could not create row.'), 'error');
+                  }
+                }}
+              />
+            </Modal>
+          )}
+
+          <AlertDialog
+            open={deleteLookupRow !== null}
+            onOpenChange={(open) => {
+              if (!open && !deleteLookupMut.isPending) setDeleteLookupRow(null);
+            }}
+          >
+            <AlertDialogContent className="z-[340] border-border bg-card text-text-primary shadow-xl sm:max-w-md">
+              <AlertDialogHeader>
+                <AlertDialogTitle className="text-text-primary font-semibold text-lg">
+                  Remove this {activeLookupConfig.label} row?
+                </AlertDialogTitle>
+                <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
+                  You’re about to remove{' '}
+                  <span className="font-medium text-text-primary">
+                    {deleteLookupRow
+                      ? String(
+                        deleteLookupRow[
+                        activeLookupConfig.nameField ?? activeLookupConfig.idField
+                        ] ?? '',
+                      ).trim() ||
+                      `${activeLookupConfig.label} #${getRowId(deleteLookupRow, activeLookupConfig)}`
+                      : 'this row'}
+                  </span>{' '}
+                  from the database.
+                </AlertDialogDescription>
+                {activeLookupKey === 'department-roles' && deleteContactUsage != null && deleteContactUsage.length > 0 && (
+                  <div className="mt-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
+                    <p className="font-medium mb-1">
+                      Cannot remove — {deleteContactUsage.length} contact{deleteContactUsage.length === 1 ? '' : 's'} currently use{deleteContactUsage.length === 1 ? 's' : ''} this mapping:
+                    </p>
+                    <ul className="max-h-40 overflow-y-auto space-y-0.5 pl-4 list-disc text-xs">
+                      {deleteContactUsage.map((c, i) => (
+                        <li key={i}>
+                          {c.firstName} {c.lastName} — {c.roleName} @ {c.companyName}{c.source === 'IAE' ? ' (IAE)' : ''}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-1 text-xs opacity-80">Remove this department–role mapping from the contacts listed above before deleting it.</p>
+                  </div>
+                )}
+                {activeLookupKey === 'department-roles' && deleteContactUsage != null && deleteContactUsage.length === 0 && (
+                  <p className="mt-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
+                    No contacts are using this mapping — safe to remove.
+                  </p>
+                )}
+                {activeLookupKey === 'company-type-services' && deleteCompanyTypeUsage != null && deleteCompanyTypeUsage.length > 0 && (
+                  <div className="mt-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
+                    <p className="font-medium mb-1">
+                      Cannot remove — {deleteCompanyTypeUsage.length} compan{deleteCompanyTypeUsage.length === 1 ? 'y' : 'ies'} currently use{deleteCompanyTypeUsage.length === 1 ? 's' : ''} this mapping:
+                    </p>
+                    <ul className="max-h-40 overflow-y-auto space-y-0.5 pl-4 list-disc text-xs">
+                      {deleteCompanyTypeUsage.map((c, i) => (
+                        <li key={i}>
+                          {c.companyName} — {c.serviceName}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-1 text-xs opacity-80">Remove this company type–service mapping from the companies listed above before deleting it.</p>
+                  </div>
+                )}
+                {activeLookupKey === 'company-type-services' && deleteCompanyTypeUsage != null && deleteCompanyTypeUsage.length === 0 && (
+                  <p className="mt-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
+                    No companies are using this mapping — safe to remove.
+                  </p>
+                )}
+              </AlertDialogHeader>
+              {deleteLookupMut.isPending && (
+                <div
+                  className="flex items-center gap-2.5 rounded-lg border border-border border-dashed bg-surface/60 px-3 py-2.5 text-sm text-text-secondary"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Loader2
+                    className="h-4 w-4 shrink-0 animate-spin text-ems-accent"
+                    aria-hidden
+                  />
+                  <span>Removing row…</span>
+                </div>
+              )}
+              <AlertDialogFooter className="gap-2 sm:gap-2">
+                <AlertDialogCancel
+                  disabled={deleteLookupMut.isPending}
+                  className="border-border bg-elevated text-text-primary hover:bg-hover mt-0"
+                >
+                  Cancel
+                </AlertDialogCancel>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={deleteLookupMut.isPending || (activeLookupKey === 'department-roles' && (deleteContactUsage === null || deleteContactUsage.length > 0)) || (activeLookupKey === 'company-type-services' && (deleteCompanyTypeUsage === null || deleteCompanyTypeUsage.length > 0))}
+                  className="bg-ems-coral text-white hover:bg-ems-coral/90 sm:ml-0"
+                  onClick={() => void confirmDeleteLookup()}
+                >
+                  {deleteLookupMut.isPending ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      Removing…
+                    </>
+                  ) : (
+                    'Yes, remove row'
+                  )}
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          {selectedLookupRow && (
+            <Drawer onClose={() => setSelectedLookupRow(null)} width={980}>
+              <div className="p-4 border-b border-border flex items-center gap-3">
+                <Avatar name={selectedLookupTitle || activeLookupConfig.label} size="lg" />
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-lg font-semibold text-text-primary truncate">
+                    {selectedLookupTitle}
+                  </h2>
+                  <div className="text-xs text-text-muted mt-1">{activeLookupConfig.label}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDeleteLookupRow(selectedLookupRow)}
+                  title={`Delete this ${activeLookupConfig.label}`}
+                  className="p-1.5 text-text-muted hover:text-ems-coral hover:bg-ems-coral-dim rounded-md transition-colors"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedLookupRow(null)}
+                  className="text-text-muted hover:text-text-secondary text-lg p-1"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <TabBar tabs={['Overview']} active={detailsTab} onChange={setDetailsTab} />
+
+              <div className="p-4">
+                <LookupDetailsEditor
+                  key={`${activeLookupKey}-${selectedLookupId ?? 'none'}`}
+                  config={activeLookupConfig}
+                  row={selectedLookupRow}
+                  companies={lookupDepsQuery.data?.companies ?? []}
+                  companyOptions={companyOptions}
+                  companyTypeOptions={companyTypeOptions}
+                  serviceOptions={serviceOptions}
+                  departmentOptions={departmentOptions}
+                  roleOptions={roleOptions}
+                  loadingDependencies={lookupDepsQuery.isPending}
+                  saving={upsertLookupMut.isPending}
+                  onSave={async (payload) => {
+                    try {
+                      const updated = await upsertLookupMut.mutateAsync({
+                        mode: 'update',
+                        id: getRowId(selectedLookupRow, activeLookupConfig),
+                        body: payload,
+                      });
+                      setSelectedLookupRow(updated);
+                      addToast(`${activeLookupConfig.label} row updated.`, 'success');
+                    } catch (error) {
+                      addToast(friendlyApiError(error, 'Could not update row.'), 'error');
+                    }
+                  }}
+                />
+              </div>
+            </Drawer>
+          )}
+        </>
       )}
     </div>
   );
@@ -3051,8 +3058,8 @@ function LookupRowForm({
   const [serviceProvidedIds, setServiceProvidedIds] = useState<string[]>(() =>
     Array.isArray(initial?.serviceProvidedIds)
       ? initial.serviceProvidedIds
-          .map((value) => String(value))
-          .filter((value) => Number.isInteger(Number(value)) && Number(value) > 0)
+        .map((value) => String(value))
+        .filter((value) => Number.isInteger(Number(value)) && Number(value) > 0)
       : initial?.serviceProvidedId != null
         ? [String(initial.serviceProvidedId)]
         : [],
@@ -3062,8 +3069,8 @@ function LookupRowForm({
   const [roleIds, setRoleIds] = useState<string[]>(() =>
     Array.isArray(initial?.roleIds)
       ? initial.roleIds
-          .map((value) => String(value))
-          .filter((value) => Number.isInteger(Number(value)) && Number(value) > 0)
+        .map((value) => String(value))
+        .filter((value) => Number.isInteger(Number(value)) && Number(value) > 0)
       : initial?.roleId != null
         ? [String(initial.roleId)]
         : [],
@@ -3427,8 +3434,8 @@ function LookupDetailsEditor({
   const [roleIds, setRoleIds] = useState<string[]>(() =>
     Array.isArray(row.roleIds)
       ? row.roleIds
-          .map((value) => String(value))
-          .filter((value) => Number.isInteger(Number(value)) && Number(value) > 0)
+        .map((value) => String(value))
+        .filter((value) => Number.isInteger(Number(value)) && Number(value) > 0)
       : row.roleId != null
         ? [String(row.roleId)]
         : [],
@@ -3436,8 +3443,8 @@ function LookupDetailsEditor({
   const [serviceProvidedIds, setServiceProvidedIds] = useState<string[]>(() =>
     Array.isArray(row.serviceProvidedIds)
       ? row.serviceProvidedIds
-          .map((value) => String(value))
-          .filter((value) => Number.isInteger(Number(value)) && Number(value) > 0)
+        .map((value) => String(value))
+        .filter((value) => Number.isInteger(Number(value)) && Number(value) > 0)
       : row.serviceProvidedId != null
         ? [String(row.serviceProvidedId)]
         : [],
@@ -3616,146 +3623,146 @@ function LookupDetailsEditor({
         </>
       ) : (
         <>
-      <div className="flex items-center justify-between mb-2">
-        <p className="flex items-center gap-1.5 text-[11px] text-text-muted select-none">
-          <Pencil className="h-3 w-3 shrink-0" /> Edit fields below
-        </p>
-        <button
-          type="button"
-          onClick={() => setEditing(false)}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
-        >
-          <Eye className="h-3 w-3" />
-          View only
-        </button>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {isCompanyService || isCompanyTypeService ? (
-          <>
-            {isCompanyService ? (
-              <FormField label="Company" required>
-                <Select2
-                  options={companyOptions}
-                  value={companyId}
-                  onChange={setCompanyId}
-                  placeholder={loadingDependencies ? 'Loading companies...' : 'Select company'}
-                  disabled={loadingDependencies || saving}
-                />
-              </FormField>
+          <div className="flex items-center justify-between mb-2">
+            <p className="flex items-center gap-1.5 text-[11px] text-text-muted select-none">
+              <Pencil className="h-3 w-3 shrink-0" /> Edit fields below
+            </p>
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
+            >
+              <Eye className="h-3 w-3" />
+              View only
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {isCompanyService || isCompanyTypeService ? (
+              <>
+                {isCompanyService ? (
+                  <FormField label="Company" required>
+                    <Select2
+                      options={companyOptions}
+                      value={companyId}
+                      onChange={setCompanyId}
+                      placeholder={loadingDependencies ? 'Loading companies...' : 'Select company'}
+                      disabled={loadingDependencies || saving}
+                    />
+                  </FormField>
+                ) : (
+                  <FormField label="Company Type" required>
+                    <Select2
+                      options={companyTypeOptions}
+                      value={companyTypeId}
+                      onChange={setCompanyTypeId}
+                      placeholder={loadingDependencies ? 'Loading company types...' : 'Select company type'}
+                      disabled={loadingDependencies || saving}
+                    />
+                  </FormField>
+                )}
+                <FormField label="Service Provided" required>
+                  {isCompanyTypeService ? (
+                    <Select2Multi
+                      options={serviceOptions}
+                      values={serviceProvidedIds}
+                      onChange={setServiceProvidedIds}
+                      placeholder={loadingDependencies ? 'Loading services...' : 'Select one or more services'}
+                      disabled={loadingDependencies || saving}
+                    />
+                  ) : (
+                    <Select2
+                      options={companyServiceOptionsState.options}
+                      value={serviceProvidedId}
+                      onChange={setServiceProvidedId}
+                      placeholder={
+                        loadingDependencies
+                          ? 'Loading services...'
+                          : isCompanyService && !companyServiceOptionsState.hasCompany
+                            ? 'Select company first'
+                            : companyServiceOptionsState.loading
+                              ? 'Loading allowed services...'
+                              : companyServiceOptionsState.empty
+                                ? 'No allowed services'
+                                : 'Select service'
+                      }
+                      disabled={
+                        loadingDependencies ||
+                        saving ||
+                        (isCompanyService &&
+                          (!companyServiceOptionsState.hasCompany ||
+                            companyServiceOptionsState.loading ||
+                            companyServiceOptionsState.empty))
+                      }
+                    />
+                  )}
+                  {isCompanyService && companyServiceOptionsState.empty ? (
+                    <p className="mt-1 text-xs text-text-muted">
+                      {companyServiceOptionsState.hasCompanyTypes
+                        ? 'No services are mapped for this company type in CompanyTypeService.'
+                        : 'Selected company has no company type to filter services.'}
+                    </p>
+                  ) : null}
+                </FormField>
+              </>
+            ) : isDepartmentRole ? (
+              <>
+                <FormField label="Department" required>
+                  <Select2
+                    options={departmentOptions}
+                    value={departmentId}
+                    onChange={setDepartmentId}
+                    placeholder={loadingDependencies ? 'Loading departments...' : 'Select department'}
+                    disabled={loadingDependencies || saving}
+                  />
+                </FormField>
+                <FormField label="Roles" required>
+                  <Select2Multi
+                    options={roleOptions}
+                    values={roleIds}
+                    onChange={setRoleIds}
+                    placeholder={loadingDependencies ? 'Loading roles...' : 'Select one or more roles'}
+                    disabled={loadingDependencies || saving}
+                  />
+                </FormField>
+              </>
             ) : (
-              <FormField label="Company Type" required>
-                <Select2
-                  options={companyTypeOptions}
-                  value={companyTypeId}
-                  onChange={setCompanyTypeId}
-                  placeholder={loadingDependencies ? 'Loading company types...' : 'Select company type'}
-                  disabled={loadingDependencies || saving}
-                />
-              </FormField>
+              <>
+                <FormField label={isDma ? 'Market Name' : 'Name'} required>
+                  <input
+                    className={inputCls}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    maxLength={100}
+                    disabled={saving}
+                  />
+                </FormField>
+                {isDma ? (
+                  <FormField label="Postal Code" required>
+                    <input
+                      className={inputCls}
+                      value={postalCode}
+                      onChange={(e) => setPostalCode(e.target.value)}
+                      maxLength={20}
+                      disabled={saving}
+                    />
+                  </FormField>
+                ) : null}
+              </>
             )}
-            <FormField label="Service Provided" required>
-              {isCompanyTypeService ? (
-                <Select2Multi
-                  options={serviceOptions}
-                  values={serviceProvidedIds}
-                  onChange={setServiceProvidedIds}
-                  placeholder={loadingDependencies ? 'Loading services...' : 'Select one or more services'}
-                  disabled={loadingDependencies || saving}
-                />
-              ) : (
-                <Select2
-                  options={companyServiceOptionsState.options}
-                  value={serviceProvidedId}
-                  onChange={setServiceProvidedId}
-                  placeholder={
-                    loadingDependencies
-                      ? 'Loading services...'
-                      : isCompanyService && !companyServiceOptionsState.hasCompany
-                        ? 'Select company first'
-                        : companyServiceOptionsState.loading
-                          ? 'Loading allowed services...'
-                          : companyServiceOptionsState.empty
-                            ? 'No allowed services'
-                            : 'Select service'
-                  }
-                  disabled={
-                    loadingDependencies ||
-                    saving ||
-                    (isCompanyService &&
-                      (!companyServiceOptionsState.hasCompany ||
-                        companyServiceOptionsState.loading ||
-                        companyServiceOptionsState.empty))
-                  }
-                />
-              )}
-              {isCompanyService && companyServiceOptionsState.empty ? (
-                <p className="mt-1 text-xs text-text-muted">
-                  {companyServiceOptionsState.hasCompanyTypes
-                    ? 'No services are mapped for this company type in CompanyTypeService.'
-                    : 'Selected company has no company type to filter services.'}
-                </p>
-              ) : null}
-            </FormField>
-          </>
-        ) : isDepartmentRole ? (
-          <>
-            <FormField label="Department" required>
-              <Select2
-                options={departmentOptions}
-                value={departmentId}
-                onChange={setDepartmentId}
-                placeholder={loadingDependencies ? 'Loading departments...' : 'Select department'}
-                disabled={loadingDependencies || saving}
-              />
-            </FormField>
-            <FormField label="Roles" required>
-              <Select2Multi
-                options={roleOptions}
-                values={roleIds}
-                onChange={setRoleIds}
-                placeholder={loadingDependencies ? 'Loading roles...' : 'Select one or more roles'}
-                disabled={loadingDependencies || saving}
-              />
-            </FormField>
-          </>
-        ) : (
-          <>
-            <FormField label={isDma ? 'Market Name' : 'Name'} required>
-              <input
-                className={inputCls}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                maxLength={100}
-                disabled={saving}
-              />
-            </FormField>
-            {isDma ? (
-              <FormField label="Postal Code" required>
-                <input
-                  className={inputCls}
-                  value={postalCode}
-                  onChange={(e) => setPostalCode(e.target.value)}
-                  maxLength={20}
-                  disabled={saving}
-                />
-              </FormField>
-            ) : null}
-          </>
-        )}
-      </div>
+          </div>
 
-      {error && <p className="text-xs text-ems-coral">{error}</p>}
+          {error && <p className="text-xs text-ems-coral">{error}</p>}
 
-      <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={() => void submit()}
-          disabled={saving || (loadingDependencies && (isCompanyService || isCompanyTypeService || isDepartmentRole))}
-          className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50"
-        >
-          {saving ? 'Saving…' : 'Save changes'}
-        </button>
-      </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => void submit()}
+              disabled={saving || (loadingDependencies && (isCompanyService || isCompanyTypeService || isDepartmentRole))}
+              className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Save changes'}
+            </button>
+          </div>
         </>
       )}
     </div>

@@ -30,6 +30,7 @@ export type InternalContactSyncRow = {
     emsEmail?: string;
     changes: InternalContactSyncFieldChange[];
     candidateContacts?: InternalContactSyncCandidate[];
+    dependencies?: string[];
 };
 export type InternalContactSyncPreview = {
     generatedAt: string;
@@ -89,6 +90,8 @@ export declare class InternalContactSyncService {
     private buildEmsToEntraSyncModel;
     private getInternalCompany;
     private hasContactInfoJobTitleColumn;
+    private hasContactInfoJobTitleColumnOnly;
+    private upsertEmployeeProfileJobTitle;
     private loadInternalContacts;
     private buildMatchedRow;
     private buildEmsToEntraMatchedRow;
@@ -102,6 +105,7 @@ export declare class InternalContactSyncService {
     private toCandidateEntraUser;
     private createInternalContactFromEntra;
     private updateInternalContactFromEntra;
+    private syncContactAssignments;
     private removeInternalCompanyAssignments;
     private createEntraUserFromEmsContact;
     private updateEntraUserFromEmsContact;

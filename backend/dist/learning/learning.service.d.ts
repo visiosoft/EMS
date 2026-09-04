@@ -56,6 +56,10 @@ export declare class LearningService {
         certificationId: number;
         status: string;
     }>;
+    deleteCertification(id: number): Promise<{
+        certificationId: number;
+        deleted: boolean;
+    }>;
     getSubmissions(departmentId: number, contactId: number, status: string, search: string): Promise<any>;
     getSubmissionById(id: number): Promise<{
         submissionId: any;
@@ -122,6 +126,10 @@ export declare class LearningService {
         employeeRole: any;
         platformName: any;
         documents: any;
+    }>;
+    deleteSubmission(id: number): Promise<{
+        submissionId: number;
+        deleted: boolean;
     }>;
     getEmployeeScores(departmentId: number): Promise<any>;
     getMyScore(contactId: number, departmentId: number): Promise<{

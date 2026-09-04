@@ -1,6 +1,7 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -68,6 +69,17 @@ async function bootstrap() {
       forbidNonWhitelisted: false,
     }),
   );
+
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('NKU Event Management System API')
+    .setDescription('EMS Core REST API Surface, OpenAPI definitions, and AI Tools Catalog')
+    .setVersion('1.0')
+    .addTag('EMS')
+    .build();
+  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+  SwaggerModule.setup('api/docs', app, swaggerDocument, {
+    jsonDocumentUrl: 'api/docs-json',
+  });
 
   // Vite outputs to `<repo>/dist`. Nest often runs with cwd `backend/`, so avoid
   // `process.cwd()` — resolve from this file (works for `backend/dist/main.js` and `backend/src/main.ts`).
