@@ -21,6 +21,13 @@ import {
     ChevronDown,
     ChevronUp,
     Layers,
+    BookMarked,
+    Plus,
+    Pencil,
+    Trash2,
+    ExternalLink,
+    Lightbulb,
+    Check,
 } from 'lucide-react';
 import {
     fetchAiSettings,
@@ -30,9 +37,13 @@ import {
     fetchDefaultAiPrompt,
     fetchSchemaRules,
     updateSchemaRules,
+    fetchKnowledgeBase,
+    saveKnowledgeArticle,
+    deleteKnowledgeArticle,
     type AiProvider,
     type UpdateAiSettingsPayload,
     type SchemaTableRule,
+    type KnowledgeArticle,
 } from '@/api/aiApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 
@@ -95,6 +106,11 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
         queryFn: fetchSchemaRules,
     });
 
+    const { data: kbData, isLoading: kbLoading } = useQuery({
+        queryKey: ['ai-knowledge-base'],
+        queryFn: fetchKnowledgeBase,
+    });
+
     const [provider, setProvider] = useState<AiProvider>('openai');
     const [model, setModel] = useState('gpt-4o');
     const [openaiKey, setOpenaiKey] = useState('');
@@ -111,9 +127,16 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
     const [selectedCategory, setSelectedCategory] = useState<string>('All');
     const [expandedColumns, setExpandedColumns] = useState<Record<string, boolean>>({});
 
+    // Knowledge Base state
+    const [kbSearch, setKbSearch] = useState('');
+    const [selectedKbCategory, setSelectedKbCategory] = useState<string>('All');
+    const [expandedArticles, setExpandedArticles] = useState<Record<string, boolean>>({ kb_add_venue: true });
+    const [editingArticle, setEditingArticle] = useState<KnowledgeArticle | null>(null);
+    const [isCreatingArticle, setIsCreatingArticle] = useState(false);
+
     const [showOpenaiKey, setShowOpenaiKey] = useState(false);
     const [showAnthropicKey, setShowAnthropicKey] = useState(false);
-    const [activeTab, setActiveTab] = useState<'config' | 'schema' | 'prompt' | 'tools'>('config');
+    const [activeTab, setActiveTab] = useState<'config' | 'schema' | 'kb' | 'prompt' | 'tools'>('config');
 
     const [testResult, setTestResult] = useState<{
         success?: boolean;
@@ -238,6 +261,69 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
         }));
     };
 
+    const saveKbMutation = useMutation({
+        mutationFn: async (article: Partial<KnowledgeArticle>) => {
+            return saveKnowledgeArticle(article);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['ai-knowledge-base'] });
+            addToast?.('Knowledge Base article saved', 'success');
+            setEditingArticle(null);
+            setIsCreatingArticle(false);
+        },
+        onError: (err) => {
+            addToast?.(`Failed to save article: ${friendlyApiError(err)}`, 'error');
+        },
+    });
+
+    const deleteKbMutation = useMutation({
+        mutationFn: async (id: string) => {
+            return deleteKnowledgeArticle(id);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['ai-knowledge-base'] });
+            addToast?.('Knowledge Base article removed', 'info');
+        },
+        onError: (err) => {
+            addToast?.(`Failed to remove article: ${friendlyApiError(err)}`, 'error');
+        },
+    });
+
+    const toggleArticle = (id: string) => {
+        setExpandedArticles((prev) => ({
+            ...prev,
+            [id]: !prev[id],
+        }));
+    };
+
+    // KB Categories
+    const kbCategories = useMemo(() => {
+        const set = new Set<string>();
+        for (const a of kbData?.articles || []) {
+            if (a.category) set.add(a.category);
+        }
+        return ['All', ...Array.from(set).sort()];
+    }, [kbData]);
+
+    // Filtered KB Articles
+    const filteredArticles = useMemo(() => {
+        const list = kbData?.articles || [];
+        const q = kbSearch.toLowerCase().trim();
+
+        return list.filter((a) => {
+            const matchCat = selectedKbCategory === 'All' || a.category === selectedKbCategory;
+            if (!matchCat) return false;
+            if (!q) return true;
+
+            const inTitle = a.title.toLowerCase().includes(q);
+            const inSummary = a.summary.toLowerCase().includes(q);
+            const inTags = a.tags?.some((t) => t.toLowerCase().includes(q));
+            const inSteps = a.steps?.some((s) => s.toLowerCase().includes(q));
+
+            return inTitle || inSummary || inTags || inSteps;
+        });
+    }, [kbData, kbSearch, selectedKbCategory]);
+
     // Categories list
     const categories = useMemo(() => {
         const set = new Set<string>();
@@ -323,6 +409,18 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
                 >
                     <TableProperties className="w-4 h-4" />
                     <span>Schema & Table Rules ({rulesCount}/{schemaData?.tables?.length ?? 0})</span>
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => setActiveTab('kb')}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0 ${activeTab === 'kb'
+                            ? 'bg-ems-accent text-background'
+                            : 'text-text-secondary hover:text-text-primary hover:bg-hover'
+                        }`}
+                >
+                    <BookMarked className="w-4 h-4" />
+                    <span>Knowledge Base & User Guides ({kbData?.articles?.length ?? 0})</span>
                 </button>
 
                 <button
@@ -737,7 +835,220 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
                 </div>
             )}
 
-            {/* ─── Tab 3: System Prompt & Training ─────────────────────────────────── */}
+            {/* ─── Tab 3: Knowledge Base & System Guides ───────────────────────────── */}
+            {activeTab === 'kb' && (
+                <div className="space-y-4">
+                    <div className="bg-card border border-border rounded-lg p-4 space-y-3">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div>
+                                <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+                                    <BookMarked className="w-4 h-4 text-ems-accent" />
+                                    EMS System User Guides & Standard Operating Procedures (SOPs)
+                                </h3>
+                                <p className="text-xs text-text-muted mt-0.5 leading-relaxed">
+                                    Browse or write step-by-step user manuals and workflow guides. When staff ask questions like <em>"How do I add a venue?"</em> or <em>"How to record daily sales?"</em>, the AI assistant directly uses these guides to navigate and instruct them.
+                                </p>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setEditingArticle({
+                                        id: `kb_${Date.now()}`,
+                                        title: '',
+                                        category: 'General Operations',
+                                        tags: [],
+                                        summary: '',
+                                        steps: [''],
+                                        tips: [''],
+                                        relatedPages: [],
+                                    });
+                                    setIsCreatingArticle(true);
+                                }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-ems-accent text-background text-xs font-semibold hover:bg-ems-accent/90 transition-colors shadow-sm"
+                            >
+                                <Plus className="w-3.5 h-3.5" />
+                                Add New Guide
+                            </button>
+                        </div>
+
+                        {/* Search & Filter Header */}
+                        <div className="pt-2 flex flex-col sm:flex-row gap-3">
+                            <div className="relative flex-1">
+                                <Search className="w-4 h-4 absolute left-3 top-2.5 text-text-muted" />
+                                <input
+                                    type="text"
+                                    placeholder="Search how-to guides, tags (e.g. add venue, daily sales, contracts, entra)..."
+                                    value={kbSearch}
+                                    onChange={(e) => setKbSearch(e.target.value)}
+                                    className="w-full bg-surface border border-border rounded-md pl-9 pr-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-ems-accent"
+                                />
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                                <span className="text-[11px] text-text-muted uppercase font-semibold">Category:</span>
+                                <select
+                                    value={selectedKbCategory}
+                                    onChange={(e) => setSelectedKbCategory(e.target.value)}
+                                    className="bg-surface border border-border rounded-md px-2.5 py-1.5 text-xs text-text-primary focus:outline-none focus:border-ems-accent"
+                                >
+                                    {kbCategories.map((c) => (
+                                        <option key={c} value={c}>
+                                            {c}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Guides List */}
+                    <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+                        {kbLoading ? (
+                            <div className="flex items-center justify-center py-12 gap-2 text-text-muted text-xs">
+                                <Loader2 className="w-4 h-4 animate-spin text-ems-accent" />
+                                <span>Loading Knowledge Base guides...</span>
+                            </div>
+                        ) : filteredArticles.length === 0 ? (
+                            <div className="p-8 text-center text-text-muted text-xs border border-dashed border-border rounded-lg bg-card">
+                                No guides match "{kbSearch}". Click "Add New Guide" to create one.
+                            </div>
+                        ) : (
+                            filteredArticles.map((article) => {
+                                const isExp = expandedArticles[article.id];
+
+                                return (
+                                    <div
+                                        key={article.id}
+                                        className="rounded-lg border border-border bg-card overflow-hidden transition-all shadow-sm"
+                                    >
+                                        {/* Guide Header */}
+                                        <div
+                                            onClick={() => toggleArticle(article.id)}
+                                            className="p-3.5 flex items-start justify-between gap-3 bg-elevated/40 hover:bg-hover/60 cursor-pointer transition-colors"
+                                        >
+                                            <div className="flex items-start gap-2.5 min-w-0">
+                                                <div className="p-1.5 rounded-md bg-ems-accent-dim text-ems-accent shrink-0 mt-0.5">
+                                                    <BookOpen className="w-4 h-4" />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <h4 className="font-semibold text-sm text-text-primary">
+                                                            {article.title}
+                                                        </h4>
+                                                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-surface border border-border text-text-muted uppercase tracking-wider">
+                                                            {article.category}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs text-text-muted mt-1 leading-relaxed">
+                                                        {article.summary}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setEditingArticle(article);
+                                                        setIsCreatingArticle(false);
+                                                    }}
+                                                    className="p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-hover transition-colors"
+                                                    title="Edit this guide"
+                                                >
+                                                    <Pencil className="w-3.5 h-3.5" />
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        if (window.confirm(`Delete guide "${article.title}"?`)) {
+                                                            deleteKbMutation.mutate(article.id);
+                                                        }
+                                                    }}
+                                                    className="p-1.5 rounded-md text-text-muted hover:text-ems-coral hover:bg-hover transition-colors"
+                                                    title="Delete guide"
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+
+                                                <div className="p-1 text-text-muted">
+                                                    {isExp ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Expanded Steps & Details */}
+                                        {isExp && (
+                                            <div className="p-4 border-t border-border/60 bg-surface/40 space-y-4 text-xs">
+                                                {/* Numbered Steps */}
+                                                <div>
+                                                    <h5 className="font-semibold text-text-primary uppercase tracking-wider text-[11px] mb-2 flex items-center gap-1.5">
+                                                        <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                                        Step-by-Step Instructions:
+                                                    </h5>
+                                                    <ol className="list-decimal list-inside space-y-2 text-text-secondary leading-relaxed pl-1">
+                                                        {article.steps.map((step, idx) => (
+                                                            <li key={idx} className="pl-1">
+                                                                <span className="text-text-primary">{step}</span>
+                                                            </li>
+                                                        ))}
+                                                    </ol>
+                                                </div>
+
+                                                {/* Tips */}
+                                                {article.tips && article.tips.length > 0 && (
+                                                    <div className="p-3 rounded-lg border border-amber-500/20 bg-amber-500/5 space-y-1.5">
+                                                        <h6 className="font-semibold text-amber-700 dark:text-amber-400 text-[11px] flex items-center gap-1">
+                                                            <Lightbulb className="w-3.5 h-3.5" />
+                                                            Pro Tips & Schema Notes:
+                                                        </h6>
+                                                        <ul className="list-disc list-inside space-y-1 text-text-secondary pl-1 text-[11px]">
+                                                            {article.tips.map((tip, idx) => (
+                                                                <li key={idx}>{tip}</li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                )}
+
+                                                {/* Tags & Related Pages */}
+                                                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/50 text-[11px]">
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        <span className="text-text-muted">Tags:</span>
+                                                        {article.tags?.map((t) => (
+                                                            <span
+                                                                key={t}
+                                                                className="px-2 py-0.5 rounded bg-elevated border border-border text-text-secondary font-mono text-[10px]"
+                                                            >
+                                                                #{t}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+
+                                                    {article.relatedPages && article.relatedPages.length > 0 && (
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-text-muted">Pages:</span>
+                                                            {article.relatedPages.map((p) => (
+                                                                <span key={p} className="font-mono text-ems-accent text-[11px]">
+                                                                    {p}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Tab 4: System Prompt & Training ─────────────────────────────────── */}
             {activeTab === 'prompt' && (
                 <div className="space-y-4">
                     <div className="flex items-center justify-between flex-wrap gap-2">
@@ -976,6 +1287,156 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
                     )}
                 </button>
             </div>
+
+            {/* Edit / Create Knowledge Article Modal */}
+            {editingArticle && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-card border border-border rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+                        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border bg-elevated/50">
+                            <h4 className="font-semibold text-sm text-text-primary flex items-center gap-2">
+                                <BookMarked className="w-4 h-4 text-ems-accent" />
+                                {isCreatingArticle ? 'Create Knowledge Base Guide' : `Edit: ${editingArticle.title || 'Untitled Guide'}`}
+                            </h4>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setEditingArticle(null);
+                                    setIsCreatingArticle(false);
+                                }}
+                                className="text-text-muted hover:text-text-primary text-xs"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+
+                        <div className="p-5 overflow-y-auto space-y-4 text-xs">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-[11px] font-semibold text-text-muted uppercase mb-1">
+                                        Guide Title *
+                                    </label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. How to Add a Venue"
+                                        value={editingArticle.title}
+                                        onChange={(e) => setEditingArticle({ ...editingArticle, title: e.target.value })}
+                                        className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-ems-accent"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-[11px] font-semibold text-text-muted uppercase mb-1">
+                                        Category
+                                    </label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Venues & Facilities"
+                                        value={editingArticle.category}
+                                        onChange={(e) => setEditingArticle({ ...editingArticle, category: e.target.value })}
+                                        className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-ems-accent"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-[11px] font-semibold text-text-muted uppercase mb-1">
+                                    Summary
+                                </label>
+                                <textarea
+                                    rows={2}
+                                    placeholder="Brief overview of what this workflow accomplishes..."
+                                    value={editingArticle.summary}
+                                    onChange={(e) => setEditingArticle({ ...editingArticle, summary: e.target.value })}
+                                    className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-ems-accent resize-none"
+                                />
+                            </div>
+
+                            <div>
+                                <div className="flex items-center justify-between mb-1">
+                                    <label className="text-[11px] font-semibold text-text-muted uppercase">
+                                        Step-by-Step Instructions (One per line) *
+                                    </label>
+                                </div>
+                                <textarea
+                                    rows={6}
+                                    placeholder="1. Navigate to Projects in the sidebar...&#10;2. Click + Create Project...&#10;3. Select Tour and Year..."
+                                    value={editingArticle.steps?.join('\n') || ''}
+                                    onChange={(e) =>
+                                        setEditingArticle({
+                                            ...editingArticle,
+                                            steps: e.target.value.split('\n').filter((l) => l.trim().length > 0),
+                                        })
+                                    }
+                                    className="w-full bg-surface border border-border rounded-md p-2.5 text-xs text-text-primary font-mono focus:outline-none focus:border-ems-accent leading-relaxed"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[11px] font-semibold text-text-muted uppercase mb-1">
+                                    Pro Tips & Notes (One per line)
+                                </label>
+                                <textarea
+                                    rows={3}
+                                    placeholder="Physical capacity is in SeatingCapacity...&#10;Always verify tax rate..."
+                                    value={editingArticle.tips?.join('\n') || ''}
+                                    onChange={(e) =>
+                                        setEditingArticle({
+                                            ...editingArticle,
+                                            tips: e.target.value.split('\n').filter((l) => l.trim().length > 0),
+                                        })
+                                    }
+                                    className="w-full bg-surface border border-border rounded-md p-2.5 text-xs text-text-primary font-mono focus:outline-none focus:border-ems-accent leading-relaxed"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[11px] font-semibold text-text-muted uppercase mb-1">
+                                    Search Tags (comma-separated)
+                                </label>
+                                <input
+                                    type="text"
+                                    placeholder="venue, add venue, capacity, routing, contracts"
+                                    value={editingArticle.tags?.join(', ') || ''}
+                                    onChange={(e) =>
+                                        setEditingArticle({
+                                            ...editingArticle,
+                                            tags: e.target.value.split(',').map((t) => t.trim()).filter(Boolean),
+                                        })
+                                    }
+                                    className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-ems-accent"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-elevated/40">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setEditingArticle(null);
+                                    setIsCreatingArticle(false);
+                                }}
+                                className="px-3 py-1.5 rounded-md text-xs text-text-secondary hover:text-text-primary"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (!editingArticle.title.trim()) {
+                                        addToast?.('Please provide a guide title', 'warning');
+                                        return;
+                                    }
+                                    saveKbMutation.mutate(editingArticle);
+                                }}
+                                disabled={saveKbMutation.isPending}
+                                className="px-4 py-1.5 rounded-md bg-ems-accent text-background text-xs font-semibold hover:bg-ems-accent/90 disabled:opacity-50"
+                            >
+                                {saveKbMutation.isPending ? 'Saving Guide...' : 'Save Guide'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

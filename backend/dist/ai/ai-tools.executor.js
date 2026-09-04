@@ -13,6 +13,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AiToolsExecutor = void 0;
 const common_1 = require("@nestjs/common");
 const typeorm_1 = require("typeorm");
+const knowledge_base_catalog_1 = require("./knowledge-base.catalog");
 let AiToolsExecutor = AiToolsExecutor_1 = class AiToolsExecutor {
     dataSource;
     logger = new common_1.Logger(AiToolsExecutor_1.name);
@@ -61,6 +62,9 @@ let AiToolsExecutor = AiToolsExecutor_1 = class AiToolsExecutor {
                     break;
                 case 'search_handbook_and_news':
                     resultData = await this.searchHandbookAndNews(input);
+                    break;
+                case 'search_knowledge_base':
+                    resultData = await this.searchKnowledgeBase(input);
                     break;
                 case 'execute_readonly_sql':
                     resultData = await this.executeReadonlySql(input);
@@ -437,6 +441,44 @@ let AiToolsExecutor = AiToolsExecutor_1 = class AiToolsExecutor {
       FROM dbo.HandbookDocument
       WHERE Title LIKE @0 OR Summary LIKE @0`, [`%${query}%`]).catch(() => []);
         return { news, handbook };
+    }
+    async searchKnowledgeBase(input) {
+        const query = String(input.query || '').trim().toLowerCase();
+        const articles = (0, knowledge_base_catalog_1.getFullKnowledgeBase)();
+        if (!query) {
+            return {
+                articles: articles.slice(0, 6).map((a) => ({
+                    id: a.id,
+                    title: a.title,
+                    summary: a.summary,
+                    steps: a.steps,
+                    tips: a.tips,
+                })),
+            };
+        }
+        const words = query.split(/\s+/).filter((w) => w.length > 2);
+        const matches = articles.filter((a) => {
+            const inTitle = a.title.toLowerCase().includes(query);
+            const inSummary = a.summary.toLowerCase().includes(query);
+            const inTags = a.tags.some((t) => t.toLowerCase().includes(query) || query.includes(t.toLowerCase()));
+            const inSteps = a.steps.some((s) => s.toLowerCase().includes(query));
+            const inWords = words.some((w) => a.title.toLowerCase().includes(w) || a.tags.some((t) => t.toLowerCase().includes(w)));
+            return inTitle || inSummary || inTags || inSteps || inWords;
+        });
+        const results = matches.length > 0 ? matches : articles.slice(0, 4);
+        return {
+            query,
+            totalMatches: results.length,
+            guides: results.map((a) => ({
+                id: a.id,
+                title: a.title,
+                category: a.category,
+                summary: a.summary,
+                steps: a.steps,
+                tips: a.tips,
+                relatedPages: a.relatedPages,
+            })),
+        };
     }
     async executeReadonlySql(input) {
         const rawSql = String(input.sqlQuery || '').trim();

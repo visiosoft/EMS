@@ -2,6 +2,17 @@ import { apiFetch } from './config';
 
 export type AiProvider = 'openai' | 'anthropic';
 
+export interface KnowledgeArticle {
+    id: string;
+    title: string;
+    category: string;
+    tags: string[];
+    summary: string;
+    steps: string[];
+    tips?: string[];
+    relatedPages?: string[];
+}
+
 export interface SchemaTableRule {
     tableName: string;
     category: string;
@@ -139,5 +150,26 @@ export async function updateSchemaRules(payload: {
     return apiFetch<{ tables: SchemaTableRule[] }>('/ai/schema-rules', {
         method: 'POST',
         body: JSON.stringify(payload),
+    });
+}
+
+export async function fetchKnowledgeBase(): Promise<{ articles: KnowledgeArticle[] }> {
+    return apiFetch<{ articles: KnowledgeArticle[] }>('/ai/knowledge-base');
+}
+
+export async function saveKnowledgeArticle(
+    payload: Partial<KnowledgeArticle>,
+): Promise<{ articles: KnowledgeArticle[] }> {
+    return apiFetch<{ articles: KnowledgeArticle[] }>('/ai/knowledge-base', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function deleteKnowledgeArticle(
+    id: string,
+): Promise<{ articles: KnowledgeArticle[] }> {
+    return apiFetch<{ articles: KnowledgeArticle[] }>(`/ai/knowledge-base/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
     });
 }

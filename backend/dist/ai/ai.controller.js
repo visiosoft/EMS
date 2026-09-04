@@ -216,6 +216,21 @@ let AiController = class AiController {
             tables: this.aiService.getSchemaTableRules(),
         };
     }
+    getKnowledgeBase() {
+        return {
+            articles: this.aiService.getKnowledgeArticles(),
+        };
+    }
+    saveKnowledgeArticle(body) {
+        return {
+            articles: this.aiService.saveKnowledgeArticle(body),
+        };
+    }
+    deleteKnowledgeArticle(id) {
+        return {
+            articles: this.aiService.deleteKnowledgeArticle(id),
+        };
+    }
 };
 exports.AiController = AiController;
 __decorate([
@@ -270,6 +285,26 @@ __decorate([
     __metadata("design:paramtypes", [UpdateTableRulesDto]),
     __metadata("design:returntype", void 0)
 ], AiController.prototype, "updateSchemaRules", null);
+__decorate([
+    (0, common_1.Get)('knowledge-base'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], AiController.prototype, "getKnowledgeBase", null);
+__decorate([
+    (0, common_1.Post)('knowledge-base'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], AiController.prototype, "saveKnowledgeArticle", null);
+__decorate([
+    (0, common_1.Delete)('knowledge-base/:id'),
+    __param(0, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", void 0)
+], AiController.prototype, "deleteKnowledgeArticle", null);
 exports.AiController = AiController = __decorate([
     (0, common_1.Controller)('ai'),
     __metadata("design:paramtypes", [ai_service_1.AiService])

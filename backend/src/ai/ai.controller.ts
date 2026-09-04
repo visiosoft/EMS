@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
 import { IsArray, IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
 import { AiService } from './ai.service';
 import { DEFAULT_AI_SYSTEM_PROMPT } from './ai-default-prompt';
-import { AiProvider, AiSettings } from './ai.types';
+import { AiProvider, AiSettings, KnowledgeArticle } from './ai.types';
 
 export class UpdateAiSettingsDto {
     @IsOptional()
@@ -166,6 +166,27 @@ export class AiController {
         }
         return {
             tables: this.aiService.getSchemaTableRules(),
+        };
+    }
+
+    @Get('knowledge-base')
+    getKnowledgeBase() {
+        return {
+            articles: this.aiService.getKnowledgeArticles(),
+        };
+    }
+
+    @Post('knowledge-base')
+    saveKnowledgeArticle(@Body() body: Partial<KnowledgeArticle>) {
+        return {
+            articles: this.aiService.saveKnowledgeArticle(body),
+        };
+    }
+
+    @Delete('knowledge-base/:id')
+    deleteKnowledgeArticle(@Param('id') id: string) {
+        return {
+            articles: this.aiService.deleteKnowledgeArticle(id),
         };
     }
 }

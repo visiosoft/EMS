@@ -205,6 +205,20 @@ export const AI_TOOLS_CATALOG: AiToolDefinition[] = [
         },
     },
     {
+        name: 'search_knowledge_base',
+        description: 'Search official EMS how-to guides and user manuals (e.g., "how to add venue", "how to create project", "how to record daily sales", "how to sync entra", "how to upload contract").',
+        parameters: {
+            type: 'object',
+            properties: {
+                query: {
+                    type: 'string',
+                    description: 'The how-to or user workflow topic to search for (e.g. "add venue", "create engagement", "daily sales", "upload contract")',
+                },
+            },
+            required: ['query'],
+        },
+    },
+    {
         name: 'execute_readonly_sql',
         description: 'HYBRID FALLBACK: Execute a safe, read-only SQL query against the MSSQL database when standard API endpoints do not provide the requested aggregation or cross-table join. ONLY SELECT statements are permitted.',
         parameters: {

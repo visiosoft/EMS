@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ToolCallRecord } from './ai.types';
+import { getFullKnowledgeBase } from './knowledge-base.catalog';
 
 @Injectable()
 export class AiToolsExecutor {
@@ -52,6 +53,9 @@ export class AiToolsExecutor {
                     break;
                 case 'search_handbook_and_news':
                     resultData = await this.searchHandbookAndNews(input);
+                    break;
+                case 'search_knowledge_base':
+                    resultData = await this.searchKnowledgeBase(input);
                     break;
                 case 'execute_readonly_sql':
                     resultData = await this.executeReadonlySql(input);
@@ -496,6 +500,47 @@ export class AiToolsExecutor {
         ).catch(() => []);
 
         return { news, handbook };
+    }
+
+    private async searchKnowledgeBase(input: Record<string, any>) {
+        const query = String(input.query || '').trim().toLowerCase();
+        const articles = getFullKnowledgeBase();
+        if (!query) {
+            return {
+                articles: articles.slice(0, 6).map((a) => ({
+                    id: a.id,
+                    title: a.title,
+                    summary: a.summary,
+                    steps: a.steps,
+                    tips: a.tips,
+                })),
+            };
+        }
+
+        const words = query.split(/\s+/).filter((w) => w.length > 2);
+        const matches = articles.filter((a) => {
+            const inTitle = a.title.toLowerCase().includes(query);
+            const inSummary = a.summary.toLowerCase().includes(query);
+            const inTags = a.tags.some((t) => t.toLowerCase().includes(query) || query.includes(t.toLowerCase()));
+            const inSteps = a.steps.some((s) => s.toLowerCase().includes(query));
+            const inWords = words.some((w) => a.title.toLowerCase().includes(w) || a.tags.some((t) => t.toLowerCase().includes(w)));
+            return inTitle || inSummary || inTags || inSteps || inWords;
+        });
+
+        const results = matches.length > 0 ? matches : articles.slice(0, 4);
+        return {
+            query,
+            totalMatches: results.length,
+            guides: results.map((a) => ({
+                id: a.id,
+                title: a.title,
+                category: a.category,
+                summary: a.summary,
+                steps: a.steps,
+                tips: a.tips,
+                relatedPages: a.relatedPages,
+            })),
+        };
     }
 
     private async executeReadonlySql(input: Record<string, any>) {

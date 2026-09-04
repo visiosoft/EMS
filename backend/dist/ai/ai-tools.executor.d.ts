@@ -16,5 +16,6 @@ export declare class AiToolsExecutor {
     private getDailySalesSummary;
     private getAttractionsAndTours;
     private searchHandbookAndNews;
+    private searchKnowledgeBase;
     private executeReadonlySql;
 }

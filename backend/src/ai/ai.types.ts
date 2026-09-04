@@ -1,5 +1,16 @@
 export type AiProvider = 'openai' | 'anthropic';
 
+export interface KnowledgeArticle {
+    id: string;
+    title: string;
+    category: string;
+    tags: string[];
+    summary: string;
+    steps: string[];
+    tips?: string[];
+    relatedPages?: string[];
+}
+
 export interface SchemaTableRule {
     tableName: string;
     category?: string;

@@ -43,10 +43,12 @@ interface DisplayMessage {
 }
 
 const STARTER_PROMPTS = [
-    'What projects are currently in Confirmed status for 2026?',
-    'Find top 5 venues in New York by capacity',
-    'Show summary of recent daily ticket sales and gross revenue',
-    'List promoter companies and their main contact people',
+    { text: 'How do I add a new venue and set seating capacity?', category: 'Guide' },
+    { text: 'How do I create a tour project and pitch venues?', category: 'Guide' },
+    { text: 'Find top 5 venues in New York by seating capacity', category: 'Data' },
+    { text: 'Show summary of recent daily ticket sales and revenue', category: 'Data' },
+    { text: 'How do I record daily sales for an engagement?', category: 'Guide' },
+    { text: 'List promoter companies and their main contact people', category: 'Data' },
 ];
 
 export function AskAiSlider({ addToast }: { addToast?: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
@@ -285,18 +287,25 @@ export function AskAiSlider({ addToast }: { addToast?: (msg: string, type: 'succ
 
                                     <div className="space-y-2 text-left max-w-md mx-auto">
                                         <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted px-1">
-                                            Suggested Prompts
+                                            Suggested Prompts & How-To Guides
                                         </p>
                                         <div className="space-y-1.5">
-                                            {STARTER_PROMPTS.map((prompt) => (
+                                            {STARTER_PROMPTS.map((item) => (
                                                 <button
-                                                    key={prompt}
+                                                    key={item.text}
                                                     type="button"
-                                                    onClick={() => handleSend(prompt)}
+                                                    onClick={() => handleSend(item.text)}
                                                     className="w-full flex items-center justify-between p-2.5 rounded-lg border border-border bg-card hover:bg-hover text-xs text-text-primary text-left transition-colors group"
                                                 >
-                                                    <span>{prompt}</span>
-                                                    <ArrowRight className="w-3.5 h-3.5 text-text-muted group-hover:text-ems-accent group-hover:translate-x-0.5 transition-all" />
+                                                    <span className="flex items-center gap-2">
+                                                        <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                                                            item.category === 'Guide' ? 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300' : 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300'
+                                                        }`}>
+                                                            {item.category}
+                                                        </span>
+                                                        <span>{item.text}</span>
+                                                    </span>
+                                                    <ArrowRight className="w-3.5 h-3.5 text-text-muted group-hover:text-ems-accent group-hover:translate-x-0.5 transition-all shrink-0" />
                                                 </button>
                                             ))}
                                         </div>

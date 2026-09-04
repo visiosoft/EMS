@@ -1,5 +1,5 @@
 import { AiService } from './ai.service';
-import { AiProvider } from './ai.types';
+import { AiProvider, KnowledgeArticle } from './ai.types';
 export declare class UpdateAiSettingsDto {
     provider?: AiProvider;
     model?: string;
@@ -57,5 +57,14 @@ export declare class AiController {
     };
     updateSchemaRules(body: UpdateTableRulesDto): {
         tables: import("./ai.types").SchemaTableRule[];
+    };
+    getKnowledgeBase(): {
+        articles: KnowledgeArticle[];
+    };
+    saveKnowledgeArticle(body: Partial<KnowledgeArticle>): {
+        articles: KnowledgeArticle[];
+    };
+    deleteKnowledgeArticle(id: string): {
+        articles: KnowledgeArticle[];
     };
 }

@@ -57,6 +57,7 @@ const ai_default_prompt_1 = require("./ai-default-prompt");
 const ai_tools_catalog_1 = require("./ai-tools.catalog");
 const ai_tools_executor_1 = require("./ai-tools.executor");
 const schema_rules_catalog_1 = require("./schema-rules.catalog");
+const knowledge_base_catalog_1 = require("./knowledge-base.catalog");
 function getSettingsFilePath() {
     const cwd = process.cwd();
     if (path.basename(cwd) === 'backend') {
@@ -206,6 +207,37 @@ let AiService = AiService_1 = class AiService {
         this.persistSettings();
         return this.getSchemaTableRules();
     }
+    getKnowledgeArticles() {
+        return (0, knowledge_base_catalog_1.getFullKnowledgeBase)();
+    }
+    saveKnowledgeArticle(article) {
+        const current = (0, knowledge_base_catalog_1.getFullKnowledgeBase)();
+        const id = article.id || `kb_${Date.now()}`;
+        const newArt = {
+            id,
+            title: article.title || 'Untitled Guide',
+            category: article.category || 'General Operations',
+            tags: article.tags || [],
+            summary: article.summary || '',
+            steps: article.steps || [],
+            tips: article.tips || [],
+            relatedPages: article.relatedPages || [],
+        };
+        const existingIdx = current.findIndex((a) => a.id === id);
+        if (existingIdx >= 0) {
+            current[existingIdx] = newArt;
+        }
+        else {
+            current.push(newArt);
+        }
+        (0, knowledge_base_catalog_1.saveKnowledgeBase)(current);
+        return current;
+    }
+    deleteKnowledgeArticle(id) {
+        const current = (0, knowledge_base_catalog_1.getFullKnowledgeBase)().filter((a) => a.id !== id);
+        (0, knowledge_base_catalog_1.saveKnowledgeBase)(current);
+        return current;
+    }
     async testConnection(provider, apiKey, model) {
         const targetProvider = provider || this.settings.provider;
         const key = (apiKey != null && apiKey.trim().length > 0)
@@ -275,15 +307,22 @@ let AiService = AiService_1 = class AiService {
         return list;
     }
     buildEffectiveSystemPrompt(customSystemPrompt) {
-        const base = customSystemPrompt || this.settings.systemPrompt || ai_default_prompt_1.DEFAULT_AI_SYSTEM_PROMPT;
+        let prompt = customSystemPrompt || this.settings.systemPrompt || ai_default_prompt_1.DEFAULT_AI_SYSTEM_PROMPT;
         const rulesList = this.getSchemaTableRules().filter((r) => r.businessRules && r.businessRules.trim().length > 0);
-        if (rulesList.length === 0) {
-            return base;
+        if (rulesList.length > 0) {
+            const compiledRules = rulesList
+                .map((r) => `• dbo.${r.tableName} (${r.category || 'Table'}):\n  - Key Columns: ${(r.columns || []).slice(0, 10).join(', ')}\n  - Business Rules: ${r.businessRules.trim()}`)
+                .join('\n\n');
+            prompt += `\n\n### 📋 USER-DEFINED TABLE BUSINESS RULES & SCHEMA CONVENTIONS:\n${compiledRules}`;
         }
-        const compiledRules = rulesList
-            .map((r) => `• dbo.${r.tableName} (${r.category || 'Table'}):\n  - Key Columns: ${(r.columns || []).slice(0, 10).join(', ')}\n  - Business Rules: ${r.businessRules.trim()}`)
-            .join('\n\n');
-        return `${base}\n\n### 📋 USER-DEFINED TABLE BUSINESS RULES & SCHEMA CONVENTIONS:\n${compiledRules}`;
+        const kbArticles = this.getKnowledgeArticles();
+        if (kbArticles.length > 0) {
+            const kbSummary = kbArticles
+                .map((a) => `• [${a.title}] (Category: ${a.category}):\n  - Summary: ${a.summary}\n  - Steps:\n${a.steps.map((s, idx) => `    ${idx + 1}. ${s}`).join('\n')}`)
+                .join('\n\n');
+            prompt += `\n\n### 📚 EMS OPERATIONAL KNOWLEDGE BASE & SYSTEM MANUALS:\n${kbSummary}`;
+        }
+        return prompt;
     }
     async chat(userMessages, options) {
         const provider = options?.providerOverride || this.settings.provider;

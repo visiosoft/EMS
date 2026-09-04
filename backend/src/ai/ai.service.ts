@@ -10,6 +10,7 @@ import {
     AiSettingsPublic,
     ChatCompletionResponse,
     ChatMessage,
+    KnowledgeArticle,
     SchemaTableRule,
     ToolCallRecord,
 } from './ai.types';
@@ -17,6 +18,7 @@ import { DEFAULT_AI_SYSTEM_PROMPT } from './ai-default-prompt';
 import { AI_TOOLS_CATALOG } from './ai-tools.catalog';
 import { AiToolsExecutor } from './ai-tools.executor';
 import { DEFAULT_SCHEMA_TABLE_RULES, getFullSchemaTableRules } from './schema-rules.catalog';
+import { getFullKnowledgeBase, saveKnowledgeBase } from './knowledge-base.catalog';
 
 function getSettingsFilePath(): string {
     const cwd = process.cwd();
@@ -167,6 +169,41 @@ export class AiService {
         return this.getSchemaTableRules();
     }
 
+    getKnowledgeArticles(): KnowledgeArticle[] {
+        return getFullKnowledgeBase();
+    }
+
+    saveKnowledgeArticle(article: Partial<KnowledgeArticle>): KnowledgeArticle[] {
+        const current = getFullKnowledgeBase();
+        const id = article.id || `kb_${Date.now()}`;
+        const newArt: KnowledgeArticle = {
+            id,
+            title: article.title || 'Untitled Guide',
+            category: article.category || 'General Operations',
+            tags: article.tags || [],
+            summary: article.summary || '',
+            steps: article.steps || [],
+            tips: article.tips || [],
+            relatedPages: article.relatedPages || [],
+        };
+
+        const existingIdx = current.findIndex((a) => a.id === id);
+        if (existingIdx >= 0) {
+            current[existingIdx] = newArt;
+        } else {
+            current.push(newArt);
+        }
+
+        saveKnowledgeBase(current);
+        return current;
+    }
+
+    deleteKnowledgeArticle(id: string): KnowledgeArticle[] {
+        const current = getFullKnowledgeBase().filter((a) => a.id !== id);
+        saveKnowledgeBase(current);
+        return current;
+    }
+
     async testConnection(provider?: AiProvider, apiKey?: string, model?: string): Promise<{ success: boolean; message: string; latencyMs: number }> {
         const targetProvider = provider || this.settings.provider;
         const key = (apiKey != null && apiKey.trim().length > 0)
@@ -238,23 +275,33 @@ export class AiService {
     }
 
     private buildEffectiveSystemPrompt(customSystemPrompt?: string): string {
-        const base = customSystemPrompt || this.settings.systemPrompt || DEFAULT_AI_SYSTEM_PROMPT;
+        let prompt = customSystemPrompt || this.settings.systemPrompt || DEFAULT_AI_SYSTEM_PROMPT;
         const rulesList = this.getSchemaTableRules().filter(
             (r) => r.businessRules && r.businessRules.trim().length > 0,
         );
 
-        if (rulesList.length === 0) {
-            return base;
+        if (rulesList.length > 0) {
+            const compiledRules = rulesList
+                .map(
+                    (r) =>
+                        `• dbo.${r.tableName} (${r.category || 'Table'}):\n  - Key Columns: ${(r.columns || []).slice(0, 10).join(', ')}\n  - Business Rules: ${r.businessRules.trim()}`,
+                )
+                .join('\n\n');
+            prompt += `\n\n### 📋 USER-DEFINED TABLE BUSINESS RULES & SCHEMA CONVENTIONS:\n${compiledRules}`;
         }
 
-        const compiledRules = rulesList
-            .map(
-                (r) =>
-                    `• dbo.${r.tableName} (${r.category || 'Table'}):\n  - Key Columns: ${(r.columns || []).slice(0, 10).join(', ')}\n  - Business Rules: ${r.businessRules.trim()}`,
-            )
-            .join('\n\n');
+        const kbArticles = this.getKnowledgeArticles();
+        if (kbArticles.length > 0) {
+            const kbSummary = kbArticles
+                .map(
+                    (a) =>
+                        `• [${a.title}] (Category: ${a.category}):\n  - Summary: ${a.summary}\n  - Steps:\n${a.steps.map((s, idx) => `    ${idx + 1}. ${s}`).join('\n')}`,
+                )
+                .join('\n\n');
+            prompt += `\n\n### 📚 EMS OPERATIONAL KNOWLEDGE BASE & SYSTEM MANUALS:\n${kbSummary}`;
+        }
 
-        return `${base}\n\n### 📋 USER-DEFINED TABLE BUSINESS RULES & SCHEMA CONVENTIONS:\n${compiledRules}`;
+        return prompt;
     }
 
     async chat(
