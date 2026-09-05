@@ -5,6 +5,9 @@ import * as path from 'path';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import {
+    AiAnalyticsSummary,
+    AiFeedbackDto,
+    AiLogRecord,
     AiProvider,
     AiSettings,
     AiSettingsPublic,
@@ -26,6 +29,14 @@ function getSettingsFilePath(): string {
         return path.resolve(cwd, 'data', 'ai-settings.json');
     }
     return path.resolve(cwd, 'backend', 'data', 'ai-settings.json');
+}
+
+function getLogsFilePath(): string {
+    const cwd = process.cwd();
+    if (path.basename(cwd) === 'backend') {
+        return path.resolve(cwd, 'data', 'ai-logs.json');
+    }
+    return path.resolve(cwd, 'backend', 'data', 'ai-logs.json');
 }
 
 @Injectable()
@@ -204,6 +215,111 @@ export class AiService {
         return current;
     }
 
+    /**
+     * Item 4: Context Window Management & Pruning
+     * Keeps context sizes manageable by limiting message history and truncating old messages.
+     */
+    private pruneMessageHistory(
+        messages: { role: 'user' | 'assistant'; content: string }[],
+        maxTurns: number = 10,
+        maxCharLength: number = 3000,
+    ): { role: 'user' | 'assistant'; content: string }[] {
+        if (!messages || messages.length === 0) return [];
+
+        let trimmed = messages.slice(-maxTurns);
+        trimmed = trimmed.map((msg, idx) => {
+            const isLatest = idx === trimmed.length - 1;
+            if (!isLatest && msg.content && msg.content.length > maxCharLength) {
+                return {
+                    ...msg,
+                    content: msg.content.substring(0, maxCharLength) + '\n\n[...Previous turn context truncated for memory efficiency...]',
+                };
+            }
+            return msg;
+        });
+
+        return trimmed;
+    }
+
+    /**
+     * Item 6: AI Analytics & Admin Feedback Logging
+     */
+    private loadLogs(): AiLogRecord[] {
+        try {
+            const filePath = getLogsFilePath();
+            if (fs.existsSync(filePath)) {
+                const raw = fs.readFileSync(filePath, 'utf-8');
+                return JSON.parse(raw);
+            }
+        } catch (err: any) {
+            this.logger.warn(`Could not read AI logs: ${err.message}`);
+        }
+        return [];
+    }
+
+    private persistLogs(logs: AiLogRecord[]): void {
+        try {
+            const filePath = getLogsFilePath();
+            const dir = path.dirname(filePath);
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+            }
+            const trimmed = logs.slice(-200);
+            fs.writeFileSync(filePath, JSON.stringify(trimmed, null, 2), 'utf-8');
+        } catch (err: any) {
+            this.logger.error(`Could not persist AI logs: ${err.message}`);
+        }
+    }
+
+    private logQueryRecord(record: AiLogRecord): void {
+        const logs = this.loadLogs();
+        logs.push(record);
+        this.persistLogs(logs);
+    }
+
+    saveFeedback(logId: string, feedback: 'thumbs_up' | 'thumbs_down', comment?: string): boolean {
+        const logs = this.loadLogs();
+        const target = logs.find((l) => l.id === logId);
+        if (target) {
+            target.feedback = feedback;
+            if (comment !== undefined) target.feedbackComment = comment;
+            this.persistLogs(logs);
+            return true;
+        }
+        return false;
+    }
+
+    getAnalytics(): AiAnalyticsSummary {
+        const logs = this.loadLogs();
+        const totalQueries = logs.length;
+        const thumbsUpCount = logs.filter((l) => l.feedback === 'thumbs_up').length;
+        const thumbsDownCount = logs.filter((l) => l.feedback === 'thumbs_down').length;
+
+        const totalLatency = logs.reduce((acc, l) => acc + (l.latencyMs || 0), 0);
+        const avgLatencyMs = totalQueries > 0 ? Math.round(totalLatency / totalQueries) : 0;
+
+        const toolCounts: Record<string, number> = {};
+        logs.forEach((l) => {
+            (l.toolsUsed || []).forEach((t) => {
+                toolCounts[t] = (toolCounts[t] || 0) + 1;
+            });
+        });
+
+        const topTools = Object.entries(toolCounts)
+            .map(([toolName, count]) => ({ toolName, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 10);
+
+        return {
+            totalQueries,
+            thumbsUpCount,
+            thumbsDownCount,
+            avgLatencyMs,
+            topTools,
+            recentLogs: logs.slice().reverse().slice(0, 50),
+        };
+    }
+
     async testConnection(provider?: AiProvider, apiKey?: string, model?: string): Promise<{ success: boolean; message: string; latencyMs: number }> {
         const targetProvider = provider || this.settings.provider;
         const key = (apiKey != null && apiKey.trim().length > 0)
@@ -316,24 +432,57 @@ export class AiService {
         const model = options?.modelOverride || this.settings.model;
         const systemPrompt = this.buildEffectiveSystemPrompt(options?.customSystemPrompt);
 
+        // Apply Item 4: Context Window Management & Pruning
+        const prunedMessages = this.pruneMessageHistory(userMessages, 10, 3000);
         const tools = this.getToolsCatalog();
 
-        if (provider === 'openai') {
-            try {
-                return await this.runOpenAiChat(userMessages, model, systemPrompt, tools);
-            } catch (err: any) {
-                this.logger.error(`OpenAI Chat Error: ${err.message}`, err.stack);
-                const detailMsg = err?.error?.message || err?.message || 'OpenAI chat completion failed.';
-                throw new BadRequestException(`OpenAI Error: ${detailMsg}`);
+        const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const startTime = Date.now();
+        const userQuery = userMessages[userMessages.length - 1]?.content || 'Empty query';
+
+        let response: ChatCompletionResponse;
+
+        try {
+            if (provider === 'openai') {
+                response = await this.runOpenAiChat(prunedMessages, model, systemPrompt, tools);
+            } else {
+                response = await this.runAnthropicChat(prunedMessages, model, systemPrompt, tools);
             }
-        } else {
-            try {
-                return await this.runAnthropicChat(userMessages, model, systemPrompt, tools);
-            } catch (err: any) {
-                this.logger.error(`Anthropic Chat Error: ${err.message}`, err.stack);
-                const detailMsg = err?.error?.message || err?.message || 'Anthropic chat completion failed.';
-                throw new BadRequestException(`Anthropic Claude Error: ${detailMsg}`);
-            }
+
+            response.id = logId;
+            const latencyMs = Date.now() - startTime;
+
+            // Log query execution for Item 6
+            this.logQueryRecord({
+                id: logId,
+                timestamp: new Date().toISOString(),
+                provider,
+                model,
+                userQuery,
+                answerSummary: response.answer.substring(0, 300),
+                toolsUsed: (response.toolsUsed || []).map((t) => t.name),
+                latencyMs,
+            });
+
+            return response;
+        } catch (err: any) {
+            const latencyMs = Date.now() - startTime;
+            this.logger.error(`AI Chat Error (${provider}): ${err.message}`, err.stack);
+            const detailMsg = err?.error?.message || err?.message || 'Chat completion failed.';
+
+            this.logQueryRecord({
+                id: logId,
+                timestamp: new Date().toISOString(),
+                provider,
+                model,
+                userQuery,
+                answerSummary: '',
+                toolsUsed: [],
+                latencyMs,
+                error: detailMsg,
+            });
+
+            throw new BadRequestException(`${provider === 'openai' ? 'OpenAI' : 'Anthropic Claude'} Error: ${detailMsg}`);
         }
     }
 

@@ -19,10 +19,13 @@ import {
     ShieldCheck,
     AlertCircle,
     Code2,
+    ThumbsUp,
+    ThumbsDown,
 } from 'lucide-react';
 import {
     sendAiChat,
     fetchAiSettings,
+    sendAiFeedback,
     type ChatMessage,
     type ChatResponse,
     type ToolCallRecord,
@@ -34,6 +37,7 @@ import { friendlyApiError } from '@/lib/friendlyApiError';
 
 interface DisplayMessage {
     id: string;
+    logId?: string;
     role: 'user' | 'assistant';
     content: string;
     toolsUsed?: ToolCallRecord[];
@@ -98,6 +102,19 @@ export function AskAiSlider({ addToast }: { addToast?: (msg: string, type: 'succ
         }
     }, [isOpen, messages]);
 
+    const [feedbackState, setFeedbackState] = useState<Record<string, 'thumbs_up' | 'thumbs_down'>>({});
+
+    const handleFeedback = async (logId?: string, feedback?: 'thumbs_up' | 'thumbs_down', msgId?: string) => {
+        if (!logId || !feedback || !msgId) return;
+        setFeedbackState((prev) => ({ ...prev, [msgId]: feedback }));
+        try {
+            await sendAiFeedback({ logId, feedback });
+            if (addToast) addToast(`Feedback saved (${feedback === 'thumbs_up' ? '👍' : '👎'})`, 'success');
+        } catch (err) {
+            console.error('Failed to submit feedback:', err);
+        }
+    };
+
     const chatMutation = useMutation({
         mutationFn: async (chatHistory: ChatMessage[]) => {
             return sendAiChat(chatHistory, {
@@ -108,6 +125,7 @@ export function AskAiSlider({ addToast }: { addToast?: (msg: string, type: 'succ
         onSuccess: (res: ChatResponse) => {
             const assistantMsg: DisplayMessage = {
                 id: `msg_${Date.now()}`,
+                logId: res.id,
                 role: 'assistant',
                 content: res.answer,
                 toolsUsed: res.toolsUsed,
@@ -298,9 +316,8 @@ export function AskAiSlider({ addToast }: { addToast?: (msg: string, type: 'succ
                                                     className="w-full flex items-center justify-between p-2.5 rounded-lg border border-border bg-card hover:bg-hover text-xs text-text-primary text-left transition-colors group"
                                                 >
                                                     <span className="flex items-center gap-2">
-                                                        <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
-                                                            item.category === 'Guide' ? 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300' : 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300'
-                                                        }`}>
+                                                        <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${item.category === 'Guide' ? 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300' : 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300'
+                                                            }`}>
                                                             {item.category}
                                                         </span>
                                                         <span>{item.text}</span>
@@ -319,8 +336,8 @@ export function AskAiSlider({ addToast }: { addToast?: (msg: string, type: 'succ
                                     >
                                         <div
                                             className={`max-w-[90%] rounded-2xl px-4 py-2.5 text-xs sm:text-sm leading-relaxed shadow-sm ${msg.role === 'user'
-                                                    ? 'bg-ems-accent text-background font-medium rounded-tr-none'
-                                                    : 'bg-card border border-border text-text-primary rounded-tl-none'
+                                                ? 'bg-ems-accent text-background font-medium rounded-tr-none'
+                                                : 'bg-card border border-border text-text-primary rounded-tl-none'
                                                 }`}
                                         >
                                             {/* Message Content with simple Markdown rendering */}
@@ -383,27 +400,50 @@ export function AskAiSlider({ addToast }: { addToast?: (msg: string, type: 'succ
                                             )}
                                         </div>
 
-                                        {/* Metadata & Copy Action */}
-                                        <div className="flex items-center gap-2 px-1 text-[10px] text-text-muted">
+                                        {/* Metadata, Copy & Feedback Actions */}
+                                        <div className="flex items-center justify-between w-full px-1 text-[10px] text-text-muted">
                                             <span>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                             {msg.role === 'assistant' && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleCopy(msg.content, msg.id)}
-                                                    className="flex items-center gap-1 hover:text-text-primary transition-colors"
-                                                >
-                                                    {copiedId === msg.id ? (
-                                                        <>
-                                                            <Check className="w-3 h-3 text-emerald-500" />
-                                                            <span className="text-emerald-500">Copied</span>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <Copy className="w-3 h-3" />
-                                                            <span>Copy</span>
-                                                        </>
+                                                <div className="flex items-center gap-2">
+                                                    {msg.logId && (
+                                                        <div className="flex items-center gap-1 border-r border-border/80 pr-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleFeedback(msg.logId, 'thumbs_up', msg.id)}
+                                                                className={`p-1 rounded hover:bg-hover transition-colors ${feedbackState[msg.id] === 'thumbs_up' ? 'text-emerald-500 font-bold bg-emerald-500/10' : 'hover:text-text-primary'}`}
+                                                                title="Helpful response"
+                                                            >
+                                                                <ThumbsUp className="w-3 h-3" />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleFeedback(msg.logId, 'thumbs_down', msg.id)}
+                                                                className={`p-1 rounded hover:bg-hover transition-colors ${feedbackState[msg.id] === 'thumbs_down' ? 'text-rose-500 font-bold bg-rose-500/10' : 'hover:text-text-primary'}`}
+                                                                title="Not helpful response"
+                                                            >
+                                                                <ThumbsDown className="w-3 h-3" />
+                                                            </button>
+                                                        </div>
                                                     )}
-                                                </button>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleCopy(msg.content, msg.id)}
+                                                        className="flex items-center gap-1 hover:text-text-primary transition-colors"
+                                                    >
+                                                        {copiedId === msg.id ? (
+                                                            <>
+                                                                <Check className="w-3 h-3 text-emerald-500" />
+                                                                <span className="text-emerald-500">Copied</span>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Copy className="w-3 h-3" />
+                                                                <span>Copy</span>
+                                                            </>
+                                                        )}
+                                                    </button>
+                                                </div>
                                             )}
                                         </div>
                                     </div>

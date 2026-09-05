@@ -97,6 +97,18 @@ export class ChatRequestDto {
     customSystemPrompt?: string;
 }
 
+export class SubmitFeedbackDto {
+    @IsString()
+    logId: string;
+
+    @IsString()
+    feedback: 'thumbs_up' | 'thumbs_down';
+
+    @IsOptional()
+    @IsString()
+    comment?: string;
+}
+
 @Controller('ai')
 export class AiController {
     constructor(private readonly aiService: AiService) { }
@@ -188,5 +200,16 @@ export class AiController {
         return {
             articles: this.aiService.deleteKnowledgeArticle(id),
         };
+    }
+
+    @Post('feedback')
+    submitFeedback(@Body() body: SubmitFeedbackDto) {
+        const success = this.aiService.saveFeedback(body.logId, body.feedback, body.comment);
+        return { success };
+    }
+
+    @Get('analytics')
+    getAnalytics() {
+        return this.aiService.getAnalytics();
     }
 }

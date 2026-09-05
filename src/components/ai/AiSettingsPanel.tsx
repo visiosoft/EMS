@@ -28,6 +28,10 @@ import {
     ExternalLink,
     Lightbulb,
     Check,
+    BarChart3,
+    ThumbsUp,
+    ThumbsDown,
+    Activity,
 } from 'lucide-react';
 import {
     fetchAiSettings,
@@ -40,10 +44,12 @@ import {
     fetchKnowledgeBase,
     saveKnowledgeArticle,
     deleteKnowledgeArticle,
+    fetchAiAnalytics,
     type AiProvider,
     type UpdateAiSettingsPayload,
     type SchemaTableRule,
     type KnowledgeArticle,
+    type AiAnalyticsSummary,
 } from '@/api/aiApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 
@@ -136,7 +142,13 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
 
     const [showOpenaiKey, setShowOpenaiKey] = useState(false);
     const [showAnthropicKey, setShowAnthropicKey] = useState(false);
-    const [activeTab, setActiveTab] = useState<'config' | 'schema' | 'kb' | 'prompt' | 'tools'>('config');
+    const [activeTab, setActiveTab] = useState<'config' | 'schema' | 'kb' | 'prompt' | 'tools' | 'analytics'>('config');
+
+    const { data: analyticsData, isLoading: analyticsLoading, refetch: refetchAnalytics } = useQuery({
+        queryKey: ['ai-analytics'],
+        queryFn: fetchAiAnalytics,
+        enabled: activeTab === 'analytics',
+    });
 
     const [testResult, setTestResult] = useState<{
         success?: boolean;
@@ -391,8 +403,8 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
                     type="button"
                     onClick={() => setActiveTab('config')}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0 ${activeTab === 'config'
-                            ? 'bg-ems-accent text-background'
-                            : 'text-text-secondary hover:text-text-primary hover:bg-hover'
+                        ? 'bg-ems-accent text-background'
+                        : 'text-text-secondary hover:text-text-primary hover:bg-hover'
                         }`}
                 >
                     <Cpu className="w-4 h-4" />
@@ -403,8 +415,8 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
                     type="button"
                     onClick={() => setActiveTab('schema')}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0 ${activeTab === 'schema'
-                            ? 'bg-ems-accent text-background'
-                            : 'text-text-secondary hover:text-text-primary hover:bg-hover'
+                        ? 'bg-ems-accent text-background'
+                        : 'text-text-secondary hover:text-text-primary hover:bg-hover'
                         }`}
                 >
                     <TableProperties className="w-4 h-4" />
@@ -415,8 +427,8 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
                     type="button"
                     onClick={() => setActiveTab('kb')}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0 ${activeTab === 'kb'
-                            ? 'bg-ems-accent text-background'
-                            : 'text-text-secondary hover:text-text-primary hover:bg-hover'
+                        ? 'bg-ems-accent text-background'
+                        : 'text-text-secondary hover:text-text-primary hover:bg-hover'
                         }`}
                 >
                     <BookMarked className="w-4 h-4" />
@@ -427,8 +439,8 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
                     type="button"
                     onClick={() => setActiveTab('prompt')}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0 ${activeTab === 'prompt'
-                            ? 'bg-ems-accent text-background'
-                            : 'text-text-secondary hover:text-text-primary hover:bg-hover'
+                        ? 'bg-ems-accent text-background'
+                        : 'text-text-secondary hover:text-text-primary hover:bg-hover'
                         }`}
                 >
                     <Sliders className="w-4 h-4" />
@@ -439,12 +451,24 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
                     type="button"
                     onClick={() => setActiveTab('tools')}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0 ${activeTab === 'tools'
-                            ? 'bg-ems-accent text-background'
-                            : 'text-text-secondary hover:text-text-primary hover:bg-hover'
+                        ? 'bg-ems-accent text-background'
+                        : 'text-text-secondary hover:text-text-primary hover:bg-hover'
                         }`}
                 >
                     <Database className="w-4 h-4" />
                     <span>API Tools Catalog ({toolsData?.tools?.length ?? 0})</span>
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => setActiveTab('analytics')}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0 ${activeTab === 'analytics'
+                        ? 'bg-ems-accent text-background'
+                        : 'text-text-secondary hover:text-text-primary hover:bg-hover'
+                        }`}
+                >
+                    <BarChart3 className="w-4 h-4" />
+                    <span>Analytics & Feedback Loop</span>
                 </button>
             </div>
 
@@ -464,8 +488,8 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
                                     setModel('gpt-4o');
                                 }}
                                 className={`flex items-start gap-3 p-4 rounded-lg border text-left transition-all ${provider === 'openai'
-                                        ? 'border-ems-accent bg-ems-accent/10 shadow-sm'
-                                        : 'border-border bg-card hover:border-text-muted/40'
+                                    ? 'border-ems-accent bg-ems-accent/10 shadow-sm'
+                                    : 'border-border bg-card hover:border-text-muted/40'
                                     }`}
                             >
                                 <div className={`p-2 rounded-md ${provider === 'openai' ? 'bg-ems-accent text-background' : 'bg-elevated text-text-muted'}`}>
@@ -493,8 +517,8 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
                                     setModel('claude-3-5-sonnet-20241022');
                                 }}
                                 className={`flex items-start gap-3 p-4 rounded-lg border text-left transition-all ${provider === 'anthropic'
-                                        ? 'border-ems-accent bg-ems-accent/10 shadow-sm'
-                                        : 'border-border bg-card hover:border-text-muted/40'
+                                    ? 'border-ems-accent bg-ems-accent/10 shadow-sm'
+                                    : 'border-border bg-card hover:border-text-muted/40'
                                     }`}
                             >
                                 <div className={`p-2 rounded-md ${provider === 'anthropic' ? 'bg-ems-accent text-background' : 'bg-elevated text-text-muted'}`}>
@@ -756,8 +780,8 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
                                     <div
                                         key={table.tableName}
                                         className={`rounded-lg border transition-all ${hasCustomRule
-                                                ? 'border-border bg-card'
-                                                : 'border-border/60 bg-surface/50 hover:bg-card'
+                                            ? 'border-border bg-card'
+                                            : 'border-border/60 bg-surface/50 hover:bg-card'
                                             }`}
                                     >
                                         {/* Table Card Header */}
@@ -1263,6 +1287,169 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
                             ))}
                         </div>
                     </div>
+                </div>
+            )}
+
+            {/* ─── Tab 6: Analytics & Admin Feedback Loop ───────────────────────────── */}
+            {activeTab === 'analytics' && (
+                <div className="space-y-6">
+                    <div className="flex items-center justify-between flex-wrap gap-3 pb-3 border-b border-border">
+                        <div>
+                            <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+                                <Activity className="w-4 h-4 text-ems-accent" />
+                                AI Query Performance & User Feedback
+                            </h3>
+                            <p className="text-xs text-text-muted mt-0.5">
+                                Real-time telemetry, tool invocation frequencies, latency metrics, and user 👍 / 👎 ratings.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => refetchAnalytics()}
+                            className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary px-3 py-1.5 rounded-md border border-border bg-card hover:bg-hover transition-colors"
+                        >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            Refresh Metrics
+                        </button>
+                    </div>
+
+                    {analyticsLoading ? (
+                        <div className="flex items-center justify-center py-12 gap-2 text-text-muted text-xs">
+                            <Loader2 className="w-4 h-4 animate-spin text-ems-accent" />
+                            <span>Loading analytics telemetry...</span>
+                        </div>
+                    ) : (
+                        <div className="space-y-6">
+                            {/* Analytics KPI Stat Cards */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                <div className="p-4 rounded-xl border border-border bg-card space-y-1">
+                                    <p className="text-[11px] font-semibold text-text-muted uppercase tracking-wider">Total Queries</p>
+                                    <p className="text-2xl font-extrabold text-text-primary">{analyticsData?.totalQueries ?? 0}</p>
+                                </div>
+
+                                <div className="p-4 rounded-xl border border-border bg-card space-y-1">
+                                    <p className="text-[11px] font-semibold text-text-muted uppercase tracking-wider">Positive Rating</p>
+                                    <div className="flex items-center gap-2">
+                                        <p className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400">
+                                            {(analyticsData?.thumbsUpCount ?? 0) + (analyticsData?.thumbsDownCount ?? 0) > 0
+                                                ? `${Math.round(
+                                                    ((analyticsData?.thumbsUpCount ?? 0) /
+                                                        ((analyticsData?.thumbsUpCount ?? 0) + (analyticsData?.thumbsDownCount ?? 0))) *
+                                                    100,
+                                                )}%`
+                                                : 'N/A'}
+                                        </p>
+                                        <div className="flex items-center gap-1 text-xs text-text-muted">
+                                            <span className="flex items-center gap-0.5 text-emerald-600"><ThumbsUp className="w-3 h-3" /> {analyticsData?.thumbsUpCount ?? 0}</span>
+                                            <span className="flex items-center gap-0.5 text-rose-500"><ThumbsDown className="w-3 h-3" /> {analyticsData?.thumbsDownCount ?? 0}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="p-4 rounded-xl border border-border bg-card space-y-1">
+                                    <p className="text-[11px] font-semibold text-text-muted uppercase tracking-wider">Avg Latency</p>
+                                    <p className="text-2xl font-extrabold text-text-primary">{analyticsData?.avgLatencyMs ?? 0}<span className="text-xs font-normal text-text-muted ml-1">ms</span></p>
+                                </div>
+
+                                <div className="p-4 rounded-xl border border-border bg-card space-y-1">
+                                    <p className="text-[11px] font-semibold text-text-muted uppercase tracking-wider">Top Tool Invoked</p>
+                                    <p className="text-base font-bold text-ems-accent truncate">
+                                        {analyticsData?.topTools?.[0]?.toolName || 'None'}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Top Tools Breakdown */}
+                            {analyticsData?.topTools && analyticsData.topTools.length > 0 && (
+                                <div className="p-4 rounded-xl border border-border bg-card space-y-3">
+                                    <h4 className="text-xs font-semibold uppercase tracking-wider text-text-muted flex items-center gap-1.5">
+                                        <BarChart3 className="w-3.5 h-3.5 text-ems-accent" />
+                                        Most Frequently Executed Tools
+                                    </h4>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        {analyticsData.topTools.map((t) => (
+                                            <div key={t.toolName} className="flex items-center justify-between p-2 rounded-lg bg-surface border border-border text-xs font-mono">
+                                                <span className="text-text-primary font-semibold truncate">{t.toolName}</span>
+                                                <span className="px-2 py-0.5 rounded bg-ems-accent/15 text-ems-accent font-bold text-[11px]">{t.count} calls</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Recent Query Logs Table */}
+                            <div className="space-y-3">
+                                <h4 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                                    Recent Query Execution Logs & Feedback History
+                                </h4>
+
+                                {(!analyticsData?.recentLogs || analyticsData.recentLogs.length === 0) ? (
+                                    <div className="p-8 text-center border border-dashed border-border rounded-xl text-text-muted text-xs">
+                                        No query logs recorded yet. Ask the AI assistant questions to see logs populate.
+                                    </div>
+                                ) : (
+                                    <div className="border border-border rounded-xl overflow-x-auto bg-card">
+                                        <table className="w-full text-left text-xs">
+                                            <thead className="bg-surface border-b border-border text-[11px] text-text-muted uppercase font-semibold">
+                                                <tr>
+                                                    <th className="p-3">Timestamp</th>
+                                                    <th className="p-3">Model</th>
+                                                    <th className="p-3">User Query</th>
+                                                    <th className="p-3">Tools Called</th>
+                                                    <th className="p-3">Latency</th>
+                                                    <th className="p-3">Feedback</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y border-border">
+                                                {analyticsData.recentLogs.map((log) => (
+                                                    <tr key={log.id} className="hover:bg-hover transition-colors">
+                                                        <td className="p-3 font-mono text-[11px] text-text-muted whitespace-nowrap">
+                                                            {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                                        </td>
+                                                        <td className="p-3">
+                                                            <span className="px-2 py-0.5 rounded bg-surface border border-border font-mono text-[10px] text-text-secondary">
+                                                                {log.model}
+                                                            </span>
+                                                        </td>
+                                                        <td className="p-3 font-medium text-text-primary max-w-xs truncate" title={log.userQuery}>
+                                                            {log.userQuery}
+                                                        </td>
+                                                        <td className="p-3 font-mono text-[10px] text-text-secondary">
+                                                            {log.toolsUsed && log.toolsUsed.length > 0 ? (
+                                                                <span className="px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 font-semibold">
+                                                                    {log.toolsUsed.join(', ')}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-text-muted">None</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="p-3 font-mono text-[11px] text-text-muted">
+                                                            {log.latencyMs}ms
+                                                        </td>
+                                                        <td className="p-3">
+                                                            {log.feedback === 'thumbs_up' && (
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold text-[10px]">
+                                                                    <ThumbsUp className="w-3 h-3" /> Helpful
+                                                                </span>
+                                                            )}
+                                                            {log.feedback === 'thumbs_down' && (
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-500/15 text-rose-600 dark:text-rose-400 font-semibold text-[10px]">
+                                                                    <ThumbsDown className="w-3 h-3" /> Needs Improvement
+                                                                </span>
+                                                            )}
+                                                            {!log.feedback && (
+                                                                <span className="text-text-muted text-[10px]">Unrated</span>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 

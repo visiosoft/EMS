@@ -68,6 +68,7 @@ export interface ToolCallRecord {
 }
 
 export interface ChatCompletionResponse {
+    id?: string;
     answer: string;
     provider: AiProvider;
     model: string;
@@ -77,6 +78,35 @@ export interface ChatCompletionResponse {
         completionTokens?: number;
         totalTokens?: number;
     };
+}
+
+export interface AiLogRecord {
+    id: string;
+    timestamp: string;
+    provider: AiProvider;
+    model: string;
+    userQuery: string;
+    answerSummary: string;
+    toolsUsed: string[];
+    latencyMs: number;
+    feedback?: 'thumbs_up' | 'thumbs_down';
+    feedbackComment?: string;
+    error?: string;
+}
+
+export interface AiFeedbackDto {
+    logId: string;
+    feedback: 'thumbs_up' | 'thumbs_down';
+    comment?: string;
+}
+
+export interface AiAnalyticsSummary {
+    totalQueries: number;
+    thumbsUpCount: number;
+    thumbsDownCount: number;
+    avgLatencyMs: number;
+    topTools: { toolName: string; count: number }[];
+    recentLogs: AiLogRecord[];
 }
 
 export interface AiToolDefinition {

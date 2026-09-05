@@ -68,6 +68,7 @@ export interface ChatMessage {
 }
 
 export interface ChatResponse {
+    id?: string;
     answer: string;
     provider: AiProvider;
     model: string;
@@ -77,6 +78,29 @@ export interface ChatResponse {
         completionTokens?: number;
         totalTokens?: number;
     };
+}
+
+export interface AiLogRecord {
+    id: string;
+    timestamp: string;
+    provider: AiProvider;
+    model: string;
+    userQuery: string;
+    answerSummary: string;
+    toolsUsed: string[];
+    latencyMs: number;
+    feedback?: 'thumbs_up' | 'thumbs_down';
+    feedbackComment?: string;
+    error?: string;
+}
+
+export interface AiAnalyticsSummary {
+    totalQueries: number;
+    thumbsUpCount: number;
+    thumbsDownCount: number;
+    avgLatencyMs: number;
+    topTools: { toolName: string; count: number }[];
+    recentLogs: AiLogRecord[];
 }
 
 export interface AiToolInfo {
@@ -172,4 +196,19 @@ export async function deleteKnowledgeArticle(
     return apiFetch<{ articles: KnowledgeArticle[] }>(`/ai/knowledge-base/${encodeURIComponent(id)}`, {
         method: 'DELETE',
     });
+}
+
+export async function sendAiFeedback(payload: {
+    logId: string;
+    feedback: 'thumbs_up' | 'thumbs_down';
+    comment?: string;
+}): Promise<{ success: boolean }> {
+    return apiFetch<{ success: boolean }>('/ai/feedback', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function fetchAiAnalytics(): Promise<AiAnalyticsSummary> {
+    return apiFetch<AiAnalyticsSummary>('/ai/analytics');
 }
