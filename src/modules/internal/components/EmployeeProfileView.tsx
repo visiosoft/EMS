@@ -33,7 +33,6 @@ import { ToastContainer, type ToastItem } from "@/components/ems/Primitives";
 import { fetchWorkstations, fetchPhoneExtensions, fetchPhoneDevices, fetchPcDevices } from "@/api/employeeEmploymentApi";
 import { fetchEmployeeHealthInsurance, bulkUpdateHealthInsurance, type HealthPlanOption, type BulkUpdateHealthInsuranceRequest, type EmployeeHealthInsurance } from "@/api/employeeHealthInsuranceApi";
 import { formatE164ForDisplay } from "@/lib/contactPhoneField";
-import { toDepartmentTags } from "@/lib/departmentTags";
 import { EntraSyncButton } from "@/components/ems/EntraSyncButton";
 
 function formatDate(value: string | null | undefined): string {
@@ -667,9 +666,10 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
     })),
   );
 
-  // ─── Form state: Employment section (workstation only)
+  // ─── Form state: Employment section (workstation, secondary department)
   const [workstation, setWorkstation] = useState(profile.employment.workstation || "");
   const [workAuthLinkUrl, setWorkAuthLinkUrl] = useState(profile.employment.workAuthorizationLinkUrl || "");
+  const [secondaryDepartment, setSecondaryDepartment] = useState(profile.basics.department2 || "");
 
   const workstationsQuery = useQuery({
     queryKey: ["workstations"],
@@ -766,7 +766,11 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
   }
 
   function saveEmployment() {
-    saveMutation.mutate({ workstation, workAuthorizationLinkUrl: workAuthLinkUrl });
+    saveMutation.mutate({
+      workstation,
+      workAuthorizationLinkUrl: workAuthLinkUrl,
+      secondaryDepartment,
+    });
   }
 
   function saveProperty() {
@@ -800,6 +804,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
   function cancelEmployment() {
     setWorkstation(profile.employment.workstation || "");
     setWorkAuthLinkUrl(profile.employment.workAuthorizationLinkUrl || "");
+    setSecondaryDepartment(profile.basics.department2 || "");
     setEditingEmployment(false);
   }
 
@@ -853,8 +858,6 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
     },
   ];
 
-  const departmentTags = toDepartmentTags(profile.basics.department, profile.basics.department2);
-
   const employmentFields: FieldItem[] = [
     { label: "Title", value: textOrDash(profile.employment.title), public: true },
     { label: "Access Level", value: textOrDash(profile.employment.accessLevel), admin: true },
@@ -863,7 +866,8 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
     { label: "Workstation", value: textOrDash(profile.employment.workstation) },
     { label: "Work Authorization", value: textOrDash(profile.employment.workAuthorization), admin: true },
     { label: "Work Authorization Photos", value: profile.employment.workAuthorizationLinkUrl || "—", link: true, admin: true },
-    { label: "Department", value: textOrDash(profile.basics.department), public: true, tags: departmentTags },
+    { label: "Department", value: textOrDash(profile.basics.department), public: true },
+    { label: "Secondary Department", value: textOrDash(profile.basics.department2), public: true },
     { label: "Department Rank", value: textOrDash(profile.employment.departmentRank) },
     { label: "Role", value: textOrDash(profile.basics.role) },
     { label: "Start Date at IAE", value: formatDate(profile.employment.startDate), admin: true },
@@ -1254,7 +1258,13 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                 <Field
                   label="Department"
                   value={textOrDash(profile.basics.department)}
-                  tags={departmentTags}
+                />
+                <EditableField
+                  label="Secondary Department"
+                  value={textOrDash(profile.basics.department2)}
+                  editing
+                  editValue={secondaryDepartment}
+                  onChange={setSecondaryDepartment}
                 />
                 <Field label="Department Rank" value={textOrDash(profile.employment.departmentRank)} />
                 <Field label="Role" value={textOrDash(profile.basics.role)} />

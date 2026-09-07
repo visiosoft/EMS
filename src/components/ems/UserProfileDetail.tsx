@@ -14,7 +14,6 @@ import { fetchEmployeeCertifications } from '@/api/employeeCertificationsApi';
 import { previewUserSyncFromEntra } from '@/api/entraProfileSyncApi';
 import { EntraSyncPreviewDialog } from '@/components/ems/EntraSyncPreviewDialog';
 import { friendlyApiError } from '@/lib/friendlyApiError';
-import { toDepartmentTags } from '@/lib/departmentTags';
 import { getActiveAccount, getAccountEmail } from '@/auth/entra';
 import { INTERNAL_ROOT } from '@/routing/paths';
 
@@ -551,7 +550,6 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
   const data = profileQuery.data;
   const startDate = data?.startDate || '';
   const yearsOfService = startDate ? calculateYearsOfService(startDate) : null;
-  const departmentTags = toDepartmentTags(data?.department, data?.department2);
 
   return (
     <div className="space-y-4">
@@ -578,8 +576,8 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
             label="Department"
             value={data?.department || ''}
             source="ems"
-            tags={departmentTags}
           />
+          <ReadOnlyField label="Secondary Department" value={data?.department2 || ''} source="ems" />
           <ReadOnlyField label="Office" value={data?.office || ''} source="ems" />
           <ReadOnlyField label="Department Rank" value={data?.departmentRank || ''} source="admin" />
           <ReadOnlyField label="Role" value={data?.role || ''} source="admin" />
