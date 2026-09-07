@@ -21,6 +21,8 @@ export interface Select2Option {
   descriptionMultiline?: boolean;
   rightText?: string;
   searchText?: string;
+  /** Optional tooltip hover title */
+  title?: string;
 }
 
 function optionSearchText(option: Select2Option): string {
@@ -480,6 +482,7 @@ export function Select2({
               role="option"
               aria-selected={isSelected}
               aria-disabled={opt.disabled}
+              title={opt.title ?? opt.label}
               onClick={() => !opt.disabled && handleSelect(opt.value)}
               onMouseEnter={() => setHighlightedIndex(idx)}
               className={[
@@ -509,6 +512,7 @@ export function Select2({
       <button
         type="button"
         disabled={disabled || loading}
+        title={selected?.title ?? (typeof summary === 'string' ? summary : undefined)}
         onClick={() => { if (!disabled && !loading) setOpen((o) => !o); }}
         className={[
           'select2-selection w-full flex items-center justify-between gap-2 bg-surface border border-border rounded px-3 py-1.5 text-sm text-left transition-colors',

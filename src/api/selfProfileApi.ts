@@ -195,6 +195,8 @@ export interface UpdateMyProfilePayload {
   pcBrand?: string;
   pcModel?: string;
   bluetoothStatus?: string;
+  secondaryDepartment?: string;
+  department2?: string;
 }
 
 export interface UpdateMyProfileResponse {

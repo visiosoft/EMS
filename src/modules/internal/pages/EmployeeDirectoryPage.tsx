@@ -311,7 +311,7 @@ function DirectoryTable({
           {employees.map((employee) => {
             const name = displayName(employee);
             const title = employee.jobTitle?.trim() || "";
-            const dept = departmentOf(employee);
+            const departmentTags = toDepartmentTags(employee.departmentName, employee.department2);
             const deskBase = formatE164ForDisplay(employee.workPhone) || "";
             const ext = employee.extension?.trim() || "";
             const desk = deskBase;
@@ -328,7 +328,22 @@ function DirectoryTable({
                     <span className="font-medium text-neutral-900">{name}</span>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-neutral-600">{dept}</td>
+                <td className="px-4 py-3 text-neutral-600">
+                  {departmentTags.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {departmentTags.map((dept) => (
+                        <span
+                          key={dept}
+                          className="rounded border border-neutral-300 px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-700"
+                        >
+                          {dept}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    "Unassigned"
+                  )}
+                </td>
                 <td className="px-4 py-3 text-neutral-600">{title}</td>
                 <td className="px-4 py-3 font-mono text-xs text-neutral-500">{desk}</td>
                 <td className="px-4 py-3 font-mono text-xs text-neutral-500">{ext || ""}</td>

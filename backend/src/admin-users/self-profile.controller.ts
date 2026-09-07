@@ -151,4 +151,6 @@ export interface UpdateMyProfileDto {
   pcBrand?: string;
   pcModel?: string;
   bluetoothStatus?: string;
+  secondaryDepartment?: string;
+  department2?: string;
 }
