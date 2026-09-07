@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toDepartmentTags } from './departmentTags';
+import { toDepartmentTags, getDepartmentBadges } from './departmentTags';
 
 describe('toDepartmentTags', () => {
   it('renders department 1 and department 2 as separate tags', () => {
@@ -27,5 +27,38 @@ describe('toDepartmentTags', () => {
 
   it('returns an empty list when nothing is set', () => {
     expect(toDepartmentTags(null, undefined)).toEqual([]);
+  });
+});
+
+describe('getDepartmentBadges', () => {
+  it('returns independent primary and secondary badges', () => {
+    expect(getDepartmentBadges('Sales', 'Ticketing')).toEqual([
+      { name: 'Sales', isSecondary: false },
+      { name: 'Ticketing', isSecondary: true },
+    ]);
+  });
+
+  it('splits comma-separated departmentName into separate badges without duplicating secondary', () => {
+    expect(
+      getDepartmentBadges(
+        'Developer New 445589, Development & Testing',
+        'Developer New 445589',
+      ),
+    ).toEqual([
+      { name: 'Development & Testing', isSecondary: false },
+      { name: 'Developer New 445589', isSecondary: true },
+    ]);
+  });
+
+  it('returns only primary badge when secondary matches primary case-insensitively', () => {
+    expect(getDepartmentBadges('Sales', 'sales')).toEqual([
+      { name: 'Sales', isSecondary: false },
+    ]);
+  });
+
+  it('handles null/undefined secondary department', () => {
+    expect(getDepartmentBadges('Executive', null)).toEqual([
+      { name: 'Executive', isSecondary: false },
+    ]);
   });
 });
