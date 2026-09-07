@@ -147,7 +147,7 @@ function OrgTable({
           {members.map((member) => {
             const name = displayName(member);
             const title = member.jobTitle?.trim() || '';
-            const dept = departmentOf(member);
+            const departmentTags = toDepartmentTags(member.departmentName, member.department2);
             const deskBase = formatE164ForDisplay(member.workPhone) || '';
             const ext = member.extension?.trim() || '';
             const desk = deskBase;
@@ -167,7 +167,22 @@ function OrgTable({
                     <span className="font-medium text-neutral-900 dk:text-white">{name}</span>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-neutral-600 dk:text-neutral-300">{dept}</td>
+                <td className="px-4 py-3 text-neutral-600 dk:text-neutral-300">
+                  {departmentTags.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {departmentTags.map((dept) => (
+                        <span
+                          key={dept}
+                          className="rounded border border-neutral-300 px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-700 dk:border-white/20 dk:text-neutral-200"
+                        >
+                          {dept}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    'Unassigned'
+                  )}
+                </td>
                 <td className="px-4 py-3 text-neutral-600 dk:text-neutral-300">{title}</td>
                 <td className="px-4 py-3 font-mono text-xs text-neutral-500 dk:text-neutral-400">{desk}</td>
                 <td className="px-4 py-3 font-mono text-xs text-neutral-500 dk:text-neutral-400">{ext || ''}</td>
