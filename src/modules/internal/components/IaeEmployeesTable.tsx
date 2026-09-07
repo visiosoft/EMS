@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Loader2, RefreshCw, Search } from 'lucide-react';
 import { fetchIaeStaffEmployees, type IaeEmployee } from '@/api/iaeEmployeesApi';
 import { formatE164ForDisplay } from '@/lib/contactPhoneField';
+import { getDepartmentBadges } from '@/lib/departmentTags';
 import { HubGraphAvatar } from '@/components/ems/GraphAvatar';
 import { getActiveAccount, acquireGraphAccessToken } from '@/auth/entra';
 
@@ -122,7 +123,29 @@ function EmployeeRow({
         )}
       </td>
       <td className="px-4 py-3 text-neutral-800">{employee.jobTitle || employee.roleName || '—'}</td>
-      <td className="px-4 py-3 text-neutral-800">{employee.departmentName || '—'}</td>
+      <td className="px-4 py-3 text-neutral-800">
+        {(() => {
+          const badges = getDepartmentBadges(employee.departmentName, employee.department2);
+          if (badges.length === 0) return '—';
+          return (
+            <div className="flex flex-wrap items-center gap-1">
+              {badges.map((badge) => (
+                <span
+                  key={`${badge.name}-${badge.isSecondary ? 'sec' : 'pri'}`}
+                  className={`rounded px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-[0.08em] ${
+                    badge.isSecondary
+                      ? 'border border-blue-200 bg-blue-50 text-blue-700'
+                      : 'border border-neutral-300 bg-neutral-100/80 text-neutral-700'
+                  }`}
+                  title={badge.isSecondary ? 'Secondary Department' : 'Primary Department'}
+                >
+                  {badge.name}
+                </span>
+              ))}
+            </div>
+          );
+        })()}
+      </td>
       <td className="px-4 py-3 text-neutral-800">{displayExtension(employee)}</td>
       <td className="px-4 py-3 text-neutral-800" onClick={(e) => e.stopPropagation()}>
         {rawMobile && mobileDisplay !== '—' ? (

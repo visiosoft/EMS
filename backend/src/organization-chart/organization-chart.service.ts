@@ -55,6 +55,7 @@ export type HierarchyMember = {
   jobTitle: string;
   roleName: string;
   departmentName: string;
+  department2?: string;
   entraUserId?: string;
 };
 
@@ -409,8 +410,10 @@ export class OrganizationChartService {
       const rawJobTitle = readString(row, 'jobTitle', 'JobTitle');
       const roleName = readString(row, 'roleName', 'RoleName');
       const departmentName = normalizeDepartmentName(
-        readString(row, 'departmentName', 'DepartmentName'),
+        readString(row, 'allDepartmentNames', 'AllDepartmentNames') ||
+          readString(row, 'departmentName', 'DepartmentName'),
       );
+      const department2 = readString(row, 'department2', 'Department2');
 
       members.push({
         memberId: contactId,
@@ -426,6 +429,7 @@ export class OrganizationChartService {
         jobTitle: rawJobTitle || '',
         roleName,
         departmentName,
+        department2,
       });
     }
 

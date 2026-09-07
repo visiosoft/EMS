@@ -48,6 +48,7 @@ export interface HierarchyMember {
   jobTitle: string;
   roleName: string;
   departmentName: string;
+  department2?: string | null;
   entraUserId?: string;
 }
 
