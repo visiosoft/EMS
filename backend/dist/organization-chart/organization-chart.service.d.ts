@@ -47,6 +47,7 @@ export type HierarchyMember = {
     jobTitle: string;
     roleName: string;
     departmentName: string;
+    department2?: string;
     entraUserId?: string;
 };
 export type HierarchyNode = {

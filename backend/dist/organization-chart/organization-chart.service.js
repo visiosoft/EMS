@@ -230,7 +230,9 @@ let OrganizationChartService = OrganizationChartService_1 = class OrganizationCh
             const lastName = readString(row, 'lastName', 'LastName');
             const rawJobTitle = readString(row, 'jobTitle', 'JobTitle');
             const roleName = readString(row, 'roleName', 'RoleName');
-            const departmentName = normalizeDepartmentName(readString(row, 'departmentName', 'DepartmentName'));
+            const departmentName = normalizeDepartmentName(readString(row, 'allDepartmentNames', 'AllDepartmentNames') ||
+                readString(row, 'departmentName', 'DepartmentName'));
+            const department2 = readString(row, 'department2', 'Department2');
             members.push({
                 memberId: contactId,
                 contactId,
@@ -244,6 +246,7 @@ let OrganizationChartService = OrganizationChartService_1 = class OrganizationCh
                 jobTitle: rawJobTitle || '',
                 roleName,
                 departmentName,
+                department2,
             });
         }
         return members;

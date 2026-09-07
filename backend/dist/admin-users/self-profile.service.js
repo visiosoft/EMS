@@ -135,6 +135,84 @@ let SelfProfileService = class SelfProfileService {
                 }
             }
         }
+        if (dto.secondaryDepartment !== undefined || dto.department2 !== undefined) {
+            const secDept = (dto.secondaryDepartment ?? dto.department2 ?? '').trim();
+            if (await this.tableExists('EmployeeProfile')) {
+                let hasDept2Col = await this.hasColumn('EmployeeProfile', 'Department2');
+                if (!hasDept2Col) {
+                    try {
+                        await this.dataSource.query(`ALTER TABLE dbo.EmployeeProfile ADD Department2 nvarchar(100) NULL`);
+                        hasDept2Col = true;
+                    }
+                    catch {
+                    }
+                }
+                if (hasDept2Col) {
+                    const exists = await this.dataSource.query(`SELECT 1 AS found FROM dbo.EmployeeProfile WHERE ContactID = @0`, [contactId]);
+                    if (exists.length > 0) {
+                        await this.dataSource.query(`UPDATE dbo.EmployeeProfile SET Department2 = @0, modified_by = @1, modified_at = SYSUTCDATETIME() WHERE ContactID = @2`, [secDept || null, 'WMS profile update', contactId]);
+                    }
+                    else {
+                        await this.dataSource.query(`INSERT INTO dbo.EmployeeProfile (ContactID, Department2, created_by, created_at, modified_by, modified_at)
+               VALUES (@0, @1, @2, SYSUTCDATETIME(), @2, SYSUTCDATETIME())`, [contactId, secDept || null, 'WMS profile update']);
+                    }
+                }
+            }
+            let deptId = null;
+            if (secDept) {
+                const deptRows = (await this.dataSource.query(`SELECT TOP 1 DepartmentID AS departmentId FROM dbo.Department WHERE LOWER(LTRIM(RTRIM(DepartmentName))) = LOWER(@0)`, [secDept]));
+                if (deptRows.length > 0) {
+                    deptId = readNumber(deptRows[0], 'departmentId');
+                }
+                else {
+                    const insertRows = (await this.dataSource.query(`INSERT INTO dbo.Department (DepartmentName) OUTPUT INSERTED.DepartmentID AS departmentId VALUES (@0)`, [secDept]));
+                    deptId = readNumber(insertRows[0], 'departmentId');
+                }
+            }
+            if (contactAssignmentId) {
+                const caRows = (await this.dataSource.query(`SELECT TOP 1 CompanyID AS companyId, RoleID AS roleId, DepartmentID AS primaryDeptId
+           FROM dbo.ContactAssignment
+           WHERE ContactAssignmentID = @0`, [contactAssignmentId]));
+                if (caRows.length > 0) {
+                    const companyId = readNumber(caRows[0], 'companyId');
+                    const roleId = readNumber(caRows[0], 'roleId') ?? 0;
+                    const primaryDeptId = readNumber(caRows[0], 'primaryDeptId');
+                    if (companyId) {
+                        const otherCas = (await this.dataSource.query(`SELECT ContactAssignmentID AS id, DepartmentID AS deptId
+               FROM dbo.ContactAssignment
+               WHERE ContactID = @0 AND CompanyID = @1 AND ContactAssignmentID <> @2`, [contactId, companyId, contactAssignmentId]));
+                        if (deptId != null && deptId !== primaryDeptId) {
+                            const alreadyHasTarget = otherCas.some((ca) => readNumber(ca, 'deptId') === deptId);
+                            for (const ca of otherCas) {
+                                const caId = readNumber(ca, 'id');
+                                const caDeptId = readNumber(ca, 'deptId');
+                                if (caId && caDeptId !== deptId) {
+                                    await this.dataSource.query(`DELETE FROM dbo.EmployeeComputer WHERE ContactAssignmentID = @0`, [caId]);
+                                    await this.dataSource.query(`DELETE FROM dbo.EmployeeWorkLocation WHERE ContactAssignmentID = @0`, [caId]);
+                                    await this.dataSource.query(`DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID = @0`, [caId]);
+                                    await this.dataSource.query(`DELETE FROM dbo.ContactAssignment WHERE ContactAssignmentID = @0`, [caId]);
+                                }
+                            }
+                            if (!alreadyHasTarget) {
+                                await this.dataSource.query(`INSERT INTO dbo.ContactAssignment (ContactID, CompanyID, RoleID, DepartmentID, created_by, created_at)
+                   VALUES (@0, @1, @2, @3, @4, SYSUTCDATETIME())`, [contactId, companyId, roleId, deptId, 'WMS profile update']);
+                            }
+                        }
+                        else {
+                            for (const ca of otherCas) {
+                                const caId = readNumber(ca, 'id');
+                                if (caId) {
+                                    await this.dataSource.query(`DELETE FROM dbo.EmployeeComputer WHERE ContactAssignmentID = @0`, [caId]);
+                                    await this.dataSource.query(`DELETE FROM dbo.EmployeeWorkLocation WHERE ContactAssignmentID = @0`, [caId]);
+                                    await this.dataSource.query(`DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID = @0`, [caId]);
+                                    await this.dataSource.query(`DELETE FROM dbo.ContactAssignment WHERE ContactAssignmentID = @0`, [caId]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         if (dto.homeAddress) {
             await this.upsertHomeAddress(contactId, dto.homeAddress);
         }
@@ -473,6 +551,8 @@ let SelfProfileService = class SelfProfileService {
             workPhone: dto.workPhone,
             workstation: dto.workstation,
             deskPhoneExtensionId: dto.deskPhoneExtensionId,
+            secondaryDepartment: dto.secondaryDepartment,
+            department2: dto.department2,
         };
     }
     async isAccessLevelAdmin(contactId) {
