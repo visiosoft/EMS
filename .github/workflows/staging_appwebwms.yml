@@ -22,6 +22,8 @@ jobs:
       VITE_ENTRA_REDIRECT_URI: ${{ vars.VITE_ENTRA_REDIRECT_URI_STAGING }}
       VITE_ENTRA_REDIRECT_PATH: ${{ vars.VITE_ENTRA_REDIRECT_PATH || '/login' }}
       VITE_GOOGLE_PLACES_API_KEY: ${{ vars.VITE_GOOGLE_PLACES_API_KEY }}
+      VITE_SP_TENANT_URL: ${{ vars.VITE_SP_TENANT_URL }}
+      VITE_SP_SITE_URL: ${{ vars.VITE_SP_SITE_URL }}
 
     steps:
       - uses: actions/checkout@v4
