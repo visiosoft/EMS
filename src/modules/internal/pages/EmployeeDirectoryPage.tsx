@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { fetchIaeStaffEmployees, type IaeEmployee } from "@/api/iaeEmployeesApi";
 import { formatE164ForDisplay } from "@/lib/contactPhoneField";
-import { toDepartmentTags } from "@/lib/departmentTags";
+import { getDepartmentBadges, getDepartmentFilterNames } from "@/lib/departmentTags";
 import { InternalPageHero } from "../components/InternalPageHero";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
 import { HubGraphAvatar } from "@/components/ems/GraphAvatar";
@@ -42,8 +42,8 @@ type AlphaSort = "first" | "last";
 /** Sentinel for the "All" department chip — no real department can collide with it. */
 const ALL_DEPARTMENTS = "__all__";
 
-function departmentOf(employee: IaeEmployee): string {
-  return employee.departmentName?.trim() || "Unassigned";
+function departmentNamesOf(employee: IaeEmployee): string[] {
+  return getDepartmentFilterNames(employee.departmentName, employee.department2);
 }
 
 function displayName(employee: IaeEmployee): string {
@@ -202,7 +202,7 @@ function PersonTile({
   const cellPhone = formatE164ForDisplay(employee.cellPhone);
   // Entra job title only — no role fallback; employees without one show no title line.
   const title = employee.jobTitle?.trim();
-  const departmentTags = toDepartmentTags(employee.departmentName, employee.department2);
+  const departmentBadges = getDepartmentBadges(employee.departmentName, employee.department2);
   const hasContact = Boolean(hasDeskPhone || cellPhone || employee.email);
 
   return (
@@ -223,14 +223,19 @@ function PersonTile({
 
       <p className="mt-4 w-full text-[15px] font-bold text-neutral-950 break-words leading-tight">{name}</p>
 
-      {departmentTags.length > 0 ? (
-        <div className="mt-2 flex max-w-full flex-wrap items-center justify-center gap-1">
-          {departmentTags.map((dept) => (
+      {departmentBadges.length > 0 ? (
+        <div className="mt-2 flex max-w-full flex-wrap items-center justify-center gap-1.5">
+          {departmentBadges.map((badge) => (
             <span
-              key={dept}
-              className="max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight"
+              key={`${badge.name}-${badge.isSecondary ? 'sec' : 'pri'}`}
+              className={`max-w-full rounded px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] break-words text-center leading-tight ${
+                badge.isSecondary
+                  ? "border border-blue-200 bg-blue-50 text-blue-700"
+                  : "border border-neutral-300 bg-neutral-100/80 text-neutral-800"
+              }`}
+              title={badge.isSecondary ? "Secondary Department" : "Primary Department"}
             >
-              {dept}
+              {badge.name}
             </span>
           ))}
         </div>
@@ -311,7 +316,7 @@ function DirectoryTable({
           {employees.map((employee) => {
             const name = displayName(employee);
             const title = employee.jobTitle?.trim() || "";
-            const dept = departmentOf(employee);
+            const departmentBadges = getDepartmentBadges(employee.departmentName, employee.department2);
             const deskBase = formatE164ForDisplay(employee.workPhone) || "";
             const ext = employee.extension?.trim() || "";
             const desk = deskBase;
@@ -328,7 +333,27 @@ function DirectoryTable({
                     <span className="font-medium text-neutral-900">{name}</span>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-neutral-600">{dept}</td>
+                <td className="px-4 py-3 text-neutral-600">
+                  {departmentBadges.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-1">
+                      {departmentBadges.map((badge) => (
+                        <span
+                          key={`${badge.name}-${badge.isSecondary ? 'sec' : 'pri'}`}
+                          className={`rounded px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-[0.08em] ${
+                            badge.isSecondary
+                              ? "border border-blue-200 bg-blue-50 text-blue-700"
+                              : "border border-neutral-300 bg-neutral-100/80 text-neutral-700"
+                          }`}
+                          title={badge.isSecondary ? "Secondary Department" : "Primary Department"}
+                        >
+                          {badge.name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    "Unassigned"
+                  )}
+                </td>
                 <td className="px-4 py-3 text-neutral-600">{title}</td>
                 <td className="px-4 py-3 font-mono text-xs text-neutral-500">{desk}</td>
                 <td className="px-4 py-3 font-mono text-xs text-neutral-500">{ext || ""}</td>
@@ -399,7 +424,7 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
     const q = search.trim().toLowerCase();
     if (!q) return employees;
     return employees.filter((employee) =>
-      [displayName(employee), employee.jobTitle ?? "", employee.roleName ?? "", employee.departmentName ?? "", employee.email]
+      [displayName(employee), employee.jobTitle ?? "", employee.roleName ?? "", employee.departmentName ?? "", employee.department2 ?? "", employee.email]
         .join(" ")
         .toLowerCase()
         .includes(q),
@@ -414,11 +439,12 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
   const departmentChips = useMemo(() => {
     const counts = new Map<string, { count: number; weight: number }>();
     for (const employee of searched) {
-      const name = departmentOf(employee);
-      const entry = counts.get(name) ?? { count: 0, weight: 0 };
-      entry.count += 1;
-      entry.weight = Math.max(entry.weight, roleWeight(employee.roleName));
-      counts.set(name, entry);
+      for (const name of departmentNamesOf(employee)) {
+        const entry = counts.get(name) ?? { count: 0, weight: 0 };
+        entry.count += 1;
+        entry.weight = Math.max(entry.weight, roleWeight(employee.roleName));
+        counts.set(name, entry);
+      }
     }
     return Array.from(counts.entries())
       .map(([name, entry]) => ({ name, ...entry }))
@@ -436,7 +462,7 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
     () =>
       activeDepartment === ALL_DEPARTMENTS
         ? searched
-        : searched.filter((employee) => departmentOf(employee) === activeDepartment),
+        : searched.filter((employee) => departmentNamesOf(employee).includes(activeDepartment)),
     [searched, activeDepartment],
   );
 
@@ -448,10 +474,12 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
   const byDepartment = useMemo(() => {
     const groups = new Map<string, IaeEmployee[]>();
     for (const employee of filtered) {
-      const dept = employee.departmentName?.trim() || "Unassigned";
-      const bucket = groups.get(dept);
-      if (bucket) bucket.push(employee);
-      else groups.set(dept, [employee]);
+      const departments = activeDepartment === ALL_DEPARTMENTS ? departmentNamesOf(employee) : [activeDepartment];
+      for (const dept of departments) {
+        const bucket = groups.get(dept);
+        if (bucket) bucket.push(employee);
+        else groups.set(dept, [employee]);
+      }
     }
     return Array.from(groups.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
@@ -461,7 +489,7 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
           (a, b) => (a.departmentRank ?? 999) - (b.departmentRank ?? 999) || roleWeight(b.roleName) - roleWeight(a.roleName) || compareByName(a, b, "last"),
         ),
       }));
-  }, [filtered]);
+  }, [filtered, activeDepartment]);
 
   const showChips =
     ((mode === "tiles" && tilesView === "dept") || (mode === "table" && tableView === "dept"))

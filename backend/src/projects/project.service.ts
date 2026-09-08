@@ -577,21 +577,35 @@ export class ProjectService {
   }
 
   private async assertVenueCompany(venueCompanyId: number): Promise<void> {
-    const company = await this.companyRepo.findOne({
-      where: { companyId: venueCompanyId },
+    await this.assertVenueCompanies([venueCompanyId]);
+  }
+
+  private async assertVenueCompanies(venueCompanyIds: number[]): Promise<void> {
+    if (!venueCompanyIds.length) return;
+    const distinctIds = Array.from(new Set(venueCompanyIds));
+    const companies = await this.companyRepo.find({
+      where: { companyId: In(distinctIds) },
+      select: ['companyId'],
     });
-    if (!company) {
-      throw new BadRequestException({
-        message: `Company with ID ${venueCompanyId} not found.`,
-      });
+    const foundCompanyIds = new Set(companies.map((c) => c.companyId));
+    for (const id of distinctIds) {
+      if (!foundCompanyIds.has(id)) {
+        throw new BadRequestException({
+          message: `Company with ID ${id} not found.`,
+        });
+      }
     }
-    const venue = await this.venueRepo.findOne({
-      where: { companyId: venueCompanyId },
+    const venues = await this.venueRepo.find({
+      where: { companyId: In(distinctIds) },
+      select: ['companyId'],
     });
-    if (!venue) {
-      throw new BadRequestException({
-        message: 'Company exists but is not a venue.',
-      });
+    const foundVenueIds = new Set(venues.map((v) => v.companyId));
+    for (const id of distinctIds) {
+      if (!foundVenueIds.has(id)) {
+        throw new BadRequestException({
+          message: 'Company exists but is not a venue.',
+        });
+      }
     }
   }
 
@@ -870,15 +884,13 @@ export class ProjectService {
     const normalized = this.normalizeDmaIds(dmaIds);
     if (normalized.length === 0) return;
     await this.assertDmasExist(manager, normalized);
-    for (const dmaid of normalized) {
-      await manager.save(
-        EngagementProjectDma,
-        manager.create(EngagementProjectDma, {
-          engagementProjectId: projectId,
-          dmaid,
-        }),
-      );
-    }
+    const dmaEntities = normalized.map((dmaid) =>
+      manager.create(EngagementProjectDma, {
+        engagementProjectId: projectId,
+        dmaid,
+      }),
+    );
+    await manager.save(EngagementProjectDma, dmaEntities);
   }
 
   private async assertVenueInProject(
@@ -1213,8 +1225,9 @@ export class ProjectService {
         message: 'Select at least one venue.',
       });
     }
+    const venueIds = dto.venues.map((v) => v.venueCompanyId);
+    await this.assertVenueCompanies(venueIds);
     for (const v of dto.venues) {
-      await this.assertVenueCompany(v.venueCompanyId);
       await this.assertValidVenueStatus(v.venueStatus);
       for (const o of v.performanceOptions ?? []) {
         if ((o.proposedDate ?? '').trim().length === 0) continue;
@@ -1239,26 +1252,38 @@ export class ProjectService {
         );
 
         const defaultOfferCreationStatus = dto.projectStage ?? 'Requested';
-        for (const v of dto.venues ?? []) {
-          const pv = manager.create(EngagementProjectVenue, {
+        const venueEntities = (dto.venues ?? []).map((v) =>
+          manager.create(EngagementProjectVenue, {
             engagementProjectId: savedProject.engagementProjectId,
             venueCompanyId: v.venueCompanyId,
             venueStatus: v.venueStatus,
             offerCreationStatus:
               v.offerCreationStatus ?? defaultOfferCreationStatus,
-          });
-          const savedPv = await manager.save(EngagementProjectVenue, pv);
+          }),
+        );
+        const savedVenues = await manager.save(
+          EngagementProjectVenue,
+          venueEntities,
+        );
 
+        const allOptions: EngagementProjectPerformanceOption[] = [];
+        (dto.venues ?? []).forEach((v, index) => {
+          const savedPv = savedVenues[index];
           for (const opt of v.performanceOptions ?? []) {
-            const o = manager.create(EngagementProjectPerformanceOption, {
-              engagementProjectId: savedProject.engagementProjectId,
-              engagementProjectVenueId: savedPv.engagementProjectVenueId,
-              proposedDate: opt.proposedDate,
-              proposedTime: this.normalizeTime(opt.proposedTime),
-              optionStatus: opt.optionStatus,
-            });
-            await manager.save(o);
+            if ((opt.proposedDate ?? '').trim().length === 0) continue;
+            allOptions.push(
+              manager.create(EngagementProjectPerformanceOption, {
+                engagementProjectId: savedProject.engagementProjectId,
+                engagementProjectVenueId: savedPv.engagementProjectVenueId,
+                proposedDate: opt.proposedDate,
+                proposedTime: this.normalizeTime(opt.proposedTime),
+                optionStatus: opt.optionStatus,
+              }),
+            );
           }
+        });
+        if (allOptions.length > 0) {
+          await manager.save(EngagementProjectPerformanceOption, allOptions);
         }
 
         await manager.update(
@@ -1342,15 +1367,13 @@ export class ProjectService {
             const normalized = this.normalizeDmaIds(dto.dmaIds);
             if (normalized.length > 0) {
               await this.assertDmasExist(manager, normalized);
-              for (const dmaid of normalized) {
-                await manager.save(
-                  EngagementProjectDma,
-                  manager.create(EngagementProjectDma, {
-                    engagementProjectId: id,
-                    dmaid,
-                  }),
-                );
-              }
+              const dmaEntities = normalized.map((dmaid) =>
+                manager.create(EngagementProjectDma, {
+                  engagementProjectId: id,
+                  dmaid,
+                }),
+              );
+              await manager.save(EngagementProjectDma, dmaEntities);
             }
           }
           if (dto.talentAgencyCompanyId !== undefined) {

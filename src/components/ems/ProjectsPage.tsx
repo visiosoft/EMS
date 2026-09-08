@@ -1868,7 +1868,7 @@ function PerformanceOptionRow({
     [optionStatusStrings],
   );
 
-  const inputCls = 'w-full bg-surface border border-border rounded px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-ems-accent';
+  const inputCls = 'w-full h-[34px] bg-surface border border-border rounded px-2.5 py-1 text-xs text-text-primary focus:outline-none focus:border-ems-accent';
 
   useEffect(() => {
     setDate(opt.proposedDate);
@@ -1911,11 +1911,15 @@ function PerformanceOptionRow({
 
   if (editing) {
     return (
-      <div className="bg-elevated border border-border rounded p-2 space-y-2">
-        <div className="grid grid-cols-3 gap-2">
-          <FormField label="Date"><input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} disabled={saving} /></FormField>
-          <FormField label="Time"><input type="time" className={inputCls} value={time} onChange={(e) => setTime(e.target.value)} disabled={saving} /></FormField>
-          <FormField label="Status">
+      <div className="bg-elevated border border-border rounded p-2.5 space-y-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-start">
+          <FormField label="Date" required>
+            <input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} disabled={saving} />
+          </FormField>
+          <FormField label="Time">
+            <input type="time" className={inputCls} value={time} onChange={(e) => setTime(e.target.value)} disabled={saving} />
+          </FormField>
+          <FormField label="Status" required>
             <Select2
               options={optionStatusOptions}
               value={status}
@@ -1991,7 +1995,7 @@ function AddPerformanceOptionForm({
   const [time, setTime] = useState(getCurrentTimeString);
   const [status, setStatus] = useState<OptionStatus>('Pending');
   const [saving, setSaving] = useState(false);
-  const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
+  const inputCls = 'w-full h-[34px] bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
 
   const optionStatusStrings = useResolvedOptionStatusStrings(status);
   const optionStatusOptions = useMemo(
@@ -2035,7 +2039,7 @@ function AddPerformanceOptionForm({
 
   return (
     <div className="relative bg-elevated border border-border rounded-lg p-3 space-y-3">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-start">
         <FormField label="Date" required><input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} disabled={saving} /></FormField>
         <FormField label="Time (optional)"><input type="time" className={inputCls} value={time} onChange={(e) => setTime(e.target.value)} disabled={saving} /></FormField>
         <FormField label="Option Status" required>
@@ -2942,12 +2946,25 @@ function AddVenueForm({
     }
     return [...byKey.entries()]
       .sort(([, a], [, b]) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
-      .map(([key, label]) => ({
-        value: key,
-        label,
-        searchText: label,
-      }));
-  }, [marketNames]);
+      .map(([key, dmaLabel]) => {
+        const citiesInMarket = Array.from(
+          new Set(
+            availableVenueRows
+              .filter((v) => dmaMarketFamilyKey(v.dmaMarketName) === key)
+              .map((v) => (v.city ?? '').trim())
+              .filter(Boolean),
+          ),
+        );
+        const citySuffix = citiesInMarket.length > 0 ? ` | City: ${citiesInMarket.join(', ')}` : '';
+        const displayLabel = `${dmaLabel}${citySuffix}`;
+        return {
+          value: key,
+          label: displayLabel,
+          title: citiesInMarket.length > 0 ? `DMA: ${dmaLabel}\nCities: ${citiesInMarket.join(', ')}` : `DMA: ${dmaLabel}`,
+          searchText: [dmaLabel, ...citiesInMarket].join(' '),
+        };
+      });
+  }, [availableVenueRows, marketNames]);
 
   const venueOptions = useMemo(() => {
     if (!selectedMarket) return [];
@@ -2955,13 +2972,14 @@ function AddVenueForm({
       .filter((v) => !existingIds.has(v.companyId) && dmaMarketFamilyKey(v.dmaMarketName) === selectedMarket)
       .sort((a, b) => (a.venueName ?? '').localeCompare(b.venueName ?? '', undefined, { sensitivity: 'base' }))
       .map((v) => {
-        const location = formatVenueLocation(v.city, v.stateProvince);
-        const market = cleanDmaMarketLabel(v.dmaMarketName);
-        const complex = (v.entertainmentComplexNames ?? '').trim();
+        const location = formatVenueLocation(v.city, v.stateProvince) || (v.city ?? '').trim();
+        const displayLabel = location ? `${v.venueName} | City: ${location}` : (v.venueName ?? 'Venue');
+        const fullTooltip = formatVenueWizardLabel(v);
         return {
           value: String(v.companyId),
-          label: formatVenueWizardLabel(v),
-          searchText: [v.venueName, location, market, complex, v.venueTypeName].filter(Boolean).join(' '),
+          label: displayLabel,
+          title: fullTooltip,
+          searchText: [v.venueName, location, v.dmaMarketName, v.entertainmentComplexNames, v.venueTypeName].filter(Boolean).join(' '),
         };
       });
   }, [availableVenueRows, existingIds, selectedMarket]);
@@ -3235,9 +3253,9 @@ function ProjectDetailDrawer({
             dmaMarkets={dmaMarketsQuery.data?.data ?? []}
             onUpdated={async () => {
               await refresh();
-              await qc.invalidateQueries({ queryKey: ['projects', 'api'] });
-              await qc.invalidateQueries({ queryKey: ['projects', 'suggestion-cache'], exact: false });
-              await qc.invalidateQueries({ queryKey: ['tours'], exact: false });
+              void qc.invalidateQueries({ queryKey: ['projects', 'api'] });
+              void qc.invalidateQueries({ queryKey: ['projects', 'suggestion-cache'], exact: false });
+              void qc.invalidateQueries({ queryKey: ['tours'], exact: false });
             }}
             onGoToVenues={() => setActiveTab('Venues')}
             onOpenEngagement={onOpenEngagement}
@@ -5367,8 +5385,8 @@ export function ProjectsPage({ addToast, onNavigate, initialSelectedProjectId }:
         <Modal title="Create Project" onClose={() => setShowCreateModal(false)} width={700} height={720} allowContentOverflow>
           <CreateProjectForm
             key="create-project"
-            onSaved={async (result) => {
-              await refetchProjectList();
+            onSaved={(result) => {
+              void refetchProjectList();
               setShowCreateModal(false);
               if (result.converted && result.engagementId != null) {
                 addToast('Project and engagement created successfully.', 'success');

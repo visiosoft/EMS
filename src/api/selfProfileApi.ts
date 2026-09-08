@@ -178,6 +178,8 @@ export interface UpdateMyProfilePayload {
   deskPhoneExtensionId?: number | null;
   deskPhoneId?: number | null;
   pcComputerId?: number | null;
+  secondaryDepartment?: string;
+  department2?: string;
 }
 
 export interface UpdateMyProfileResponse {

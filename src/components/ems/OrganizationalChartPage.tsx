@@ -22,7 +22,7 @@ import { GraphAvatar } from './GraphAvatar';
 import { cn } from '@/lib/utils';
 import { getActiveAccount, acquireGraphAccessToken } from '@/auth/entra';
 import { formatE164ForDisplay } from '@/lib/contactPhoneField';
-import { toDepartmentTags } from '@/lib/departmentTags';
+import { getDepartmentBadges, getDepartmentFilterNames } from '@/lib/departmentTags';
 import {
   Select,
   SelectContent,
@@ -39,8 +39,8 @@ function displayName(member: OrganizationChartMember): string {
   return member.displayName || `${member.firstName} ${member.lastName}`.trim() || '—';
 }
 
-function departmentOf(member: OrganizationChartMember): string {
-  return member.departmentName?.trim() || 'Unassigned';
+function departmentNamesOf(member: OrganizationChartMember): string[] {
+  return getDepartmentFilterNames(member.departmentName, member.department2);
 }
 
 function compareByName(a: OrganizationChartMember, b: OrganizationChartMember, primary: AlphaSort): number {
@@ -147,7 +147,7 @@ function OrgTable({
           {members.map((member) => {
             const name = displayName(member);
             const title = member.jobTitle?.trim() || '';
-            const dept = departmentOf(member);
+            const departmentBadges = getDepartmentBadges(member.departmentName, member.department2);
             const deskBase = formatE164ForDisplay(member.workPhone) || '';
             const ext = member.extension?.trim() || '';
             const desk = deskBase;
@@ -167,7 +167,28 @@ function OrgTable({
                     <span className="font-medium text-neutral-900 dk:text-white">{name}</span>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-neutral-600 dk:text-neutral-300">{dept}</td>
+                <td className="px-4 py-3 text-neutral-600 dk:text-neutral-300">
+                  {departmentBadges.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-1">
+                      {departmentBadges.map((badge) => (
+                        <span
+                          key={`${badge.name}-${badge.isSecondary ? 'sec' : 'pri'}`}
+                          className={cn(
+                            'rounded px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-[0.08em]',
+                            badge.isSecondary
+                              ? 'border border-blue-200 bg-blue-50 text-blue-700 dk:border-blue-400/30 dk:bg-blue-950/40 dk:text-blue-300'
+                              : 'border border-neutral-300 bg-neutral-100/80 text-neutral-700 dk:border-white/20 dk:bg-white/10 dk:text-neutral-200',
+                          )}
+                          title={badge.isSecondary ? 'Secondary Department' : 'Primary Department'}
+                        >
+                          {badge.name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    'Unassigned'
+                  )}
+                </td>
                 <td className="px-4 py-3 text-neutral-600 dk:text-neutral-300">{title}</td>
                 <td className="px-4 py-3 font-mono text-xs text-neutral-500 dk:text-neutral-400">{desk}</td>
                 <td className="px-4 py-3 font-mono text-xs text-neutral-500 dk:text-neutral-400">{ext || ''}</td>
@@ -230,8 +251,9 @@ export function OrganizationalChartPage({ onNavigate }: { onNavigate?: (view: st
   const departmentChips = useMemo(() => {
     const counts = new Map<string, number>();
     for (const m of allMembers) {
-      const dept = departmentOf(m);
-      counts.set(dept, (counts.get(dept) ?? 0) + 1);
+      for (const dept of departmentNamesOf(m)) {
+        counts.set(dept, (counts.get(dept) ?? 0) + 1);
+      }
     }
     return Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
@@ -252,12 +274,12 @@ export function OrganizationalChartPage({ onNavigate }: { onNavigate?: (view: st
   const filtered = useMemo(() => {
     let result = allMembers;
     if (showChips && activeDepartment !== ALL_DEPARTMENTS) {
-      result = result.filter((m) => departmentOf(m) === activeDepartment);
+      result = result.filter((m) => departmentNamesOf(m).includes(activeDepartment));
     }
     const q = search.trim().toLowerCase();
     if (q) {
       result = result.filter((m) =>
-        [m.displayName, m.jobTitle, m.roleName, m.departmentName, m.email]
+        [m.displayName, m.jobTitle, m.roleName, m.departmentName, m.department2, m.email]
           .join(' ')
           .toLowerCase()
           .includes(q),
@@ -274,15 +296,17 @@ export function OrganizationalChartPage({ onNavigate }: { onNavigate?: (view: st
   const byDepartment = useMemo(() => {
     const groups = new Map<string, OrganizationChartMember[]>();
     for (const m of filtered) {
-      const dept = departmentOf(m);
-      const bucket = groups.get(dept);
-      if (bucket) bucket.push(m);
-      else groups.set(dept, [m]);
+      const departments = activeDepartment === ALL_DEPARTMENTS ? departmentNamesOf(m) : [activeDepartment];
+      for (const dept of departments) {
+        const bucket = groups.get(dept);
+        if (bucket) bucket.push(m);
+        else groups.set(dept, [m]);
+      }
     }
     return Array.from(groups.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([dept, members]) => ({ dept, members: members.sort((a, b) => a.sortOrder - b.sortOrder || compareByName(a, b, 'last')) }));
-  }, [filtered]);
+  }, [filtered, activeDepartment]);
 
   const handleRowClick = onNavigate
     ? (contactId: number) => onNavigate('contacts', { selectedContactId: contactId })
@@ -499,7 +523,7 @@ function PersonTile({
 }) {
   const name = displayName(member);
   const title = member.jobTitle?.trim();
-  const departmentTags = toDepartmentTags(member.departmentName, member.department2);
+  const departmentBadges = getDepartmentBadges(member.departmentName, member.department2);
   const cellPhone = formatE164ForDisplay(member.cellPhone);
   const deskBase = formatE164ForDisplay(member.workPhone) || '';
   const ext = member.extension?.trim() || '';
@@ -522,14 +546,20 @@ function PersonTile({
 
       <p className="mt-4 w-full text-[15px] font-bold text-neutral-950 break-words leading-tight dk:text-white">{name}</p>
 
-      {departmentTags.length > 0 ? (
-        <div className="mt-2 flex max-w-full flex-wrap items-center justify-center gap-1">
-          {departmentTags.map((dept) => (
+      {departmentBadges.length > 0 ? (
+        <div className="mt-2 flex max-w-full flex-wrap items-center justify-center gap-1.5">
+          {departmentBadges.map((badge) => (
             <span
-              key={dept}
-              className="max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight dk:border-white/20 dk:text-neutral-200"
+              key={`${badge.name}-${badge.isSecondary ? 'sec' : 'pri'}`}
+              className={cn(
+                'max-w-full rounded px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] break-words text-center leading-tight',
+                badge.isSecondary
+                  ? 'border border-blue-200 bg-blue-50 text-blue-700 dk:border-blue-400/30 dk:bg-blue-950/40 dk:text-blue-300'
+                  : 'border border-neutral-300 bg-neutral-100/80 text-neutral-800 dk:border-white/20 dk:bg-white/10 dk:text-neutral-200',
+              )}
+              title={badge.isSecondary ? 'Secondary Department' : 'Primary Department'}
             >
-              {dept}
+              {badge.name}
             </span>
           ))}
         </div>

@@ -152,17 +152,46 @@ function DmaListPicker({
         <p className="text-[11px] font-semibold uppercase tracking-wide text-ems-accent">Find a DMA by any city inside it</p>
         <div className="flex flex-wrap gap-2">
           <input type="text" value={cityInput} onChange={(event) => { setCityInput(event.target.value); if (!event.target.value.trim()) setCitySearch(''); }} onKeyDown={(event) => { if (event.key === 'Enter' && cityInput.trim()) setCitySearch(cityInput.trim()); }} placeholder="e.g. Schenectady, Sweetwater" autoComplete="off" aria-label="City name" className="min-w-[10rem] flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted outline-none focus:border-ems-accent focus:ring-2 focus:ring-ems-accent/15" />
-          <button type="button" onClick={() => setCitySearch(cityInput.trim())} disabled={!cityInput.trim()} className="rounded-lg bg-ems-accent px-4 py-2 text-sm font-medium text-background disabled:opacity-50">Find</button>
+          <button type="button" onClick={() => setCitySearch(cityInput.trim())} disabled={!cityInput.trim() || cityQuery.isFetching} className="inline-flex items-center gap-1.5 rounded-lg bg-ems-accent px-4 py-2 text-sm font-medium text-background disabled:opacity-50">
+            {cityQuery.isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
+            Find
+          </button>
           <button type="button" onClick={clearCitySearch} className="rounded-lg border border-border bg-elevated px-4 py-2 text-sm font-medium text-text-secondary">Clear</button>
         </div>
-        {citySearch && <p className="text-[11px] text-text-secondary">{cityQuery.isPending ? 'Searching cities…' : cityQuery.isError ? friendlyApiError(cityQuery.error) : cityMatchIds.length ? `Filtered to ${cityMatchIds.length} market${cityMatchIds.length === 1 ? '' : 's'} matching “${citySearch}”.` : `No DMA markets contain postal codes for “${citySearch}”.`}</p>}
+        {citySearch && (
+          <div className="text-[11px] text-text-secondary flex items-center gap-2">
+            {cityQuery.isFetching ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-ems-accent shrink-0" aria-hidden />
+                <span>Searching DMA markets for “{citySearch}”…</span>
+              </>
+            ) : cityQuery.isError ? (
+              <span>{friendlyApiError(cityQuery.error)}</span>
+            ) : cityMatchIds.length ? (
+              <span>Filtered to {cityMatchIds.length} market{cityMatchIds.length === 1 ? '' : 's'} matching “{citySearch}”.</span>
+            ) : (
+              <span>No DMA markets contain postal codes for “{citySearch}”.</span>
+            )}
+          </div>
+        )}
       </div>}
 
       {selectedChips.length > 0 && <div className="space-y-2"><div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold text-text-primary tabular-nums">{selectedChips.length} selected</p><button type="button" onClick={onClearAll} className="text-xs font-medium text-ems-accent hover:underline">Clear all</button></div><div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto pr-1">{selectedChips.map((chip) => <span key={chip.id} className="inline-flex items-center gap-1.5 rounded-full border border-ems-accent/30 bg-ems-accent/10 py-1 pl-3 pr-1.5 text-xs font-medium text-ems-accent">{chip.label}<button type="button" onClick={() => onToggle(chip.id)} aria-label={`Remove ${chip.label}`} className="flex h-4 w-4 items-center justify-center rounded-full hover:bg-ems-accent/20"><X className="h-3 w-3" aria-hidden /></button></span>)}</div></div>}
 
       <div className="flex items-center justify-between gap-2"><p className="text-xs text-text-muted"><span className="font-semibold text-text-primary tabular-nums">{sortedRows.length.toLocaleString()}</span> market{sortedRows.length === 1 ? '' : 's'}</p>{unselectedVisibleIds.length > 0 && <button type="button" onClick={() => onSelectMany(unselectedVisibleIds)} className="inline-flex items-center gap-1.5 text-xs font-medium text-ems-accent hover:underline"><Check className="h-3.5 w-3.5" aria-hidden />Select all matches</button>}</div>
-      <div className="h-[min(22rem,40vh)] space-y-1 overflow-y-auto rounded-lg border border-border bg-surface p-2">
-        {sortedRows.length === 0 ? <p className="rounded-lg border border-dashed border-border px-3 py-8 text-center text-xs text-text-muted">{rows.length === 0 ? 'No markets available.' : 'No markets match your search.'}</p> : sortedRows.map((row) => {
+      <div className="relative">
+        {cityQuery.isFetching && (
+          <div
+            className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-lg bg-surface/80 backdrop-blur-[1px] text-xs font-medium text-text-primary"
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2 className="h-6 w-6 animate-spin text-ems-accent shrink-0" aria-hidden />
+            <span>Filtering markets by city…</span>
+          </div>
+        )}
+        <div className="h-[min(22rem,40vh)] space-y-1 overflow-y-auto rounded-lg border border-border bg-surface p-2">
+          {sortedRows.length === 0 ? <p className="rounded-lg border border-dashed border-border px-3 py-8 text-center text-xs text-text-muted">{rows.length === 0 ? 'No markets available.' : 'No markets match your search.'}</p> : sortedRows.map((row) => {
           const checked = selectedSet.has(row.dmaid);
           return (
             <button
@@ -192,6 +221,7 @@ function DmaListPicker({
             </button>
           );
         })}
+        </div>
       </div>
     </div>
   );
