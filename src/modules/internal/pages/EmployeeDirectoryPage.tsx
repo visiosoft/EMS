@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { fetchIaeStaffEmployees, type IaeEmployee } from "@/api/iaeEmployeesApi";
 import { formatE164ForDisplay } from "@/lib/contactPhoneField";
-import { toDepartmentTags } from "@/lib/departmentTags";
+import { getDepartmentBadges } from "@/lib/departmentTags";
 import { InternalPageHero } from "../components/InternalPageHero";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
 import { HubGraphAvatar } from "@/components/ems/GraphAvatar";
@@ -202,7 +202,7 @@ function PersonTile({
   const cellPhone = formatE164ForDisplay(employee.cellPhone);
   // Entra job title only — no role fallback; employees without one show no title line.
   const title = employee.jobTitle?.trim();
-  const departmentTags = toDepartmentTags(employee.departmentName, employee.department2);
+  const departmentBadges = getDepartmentBadges(employee.departmentName, employee.department2);
   const hasContact = Boolean(hasDeskPhone || cellPhone || employee.email);
 
   return (
@@ -223,14 +223,19 @@ function PersonTile({
 
       <p className="mt-4 w-full text-[15px] font-bold text-neutral-950 break-words leading-tight">{name}</p>
 
-      {departmentTags.length > 0 ? (
-        <div className="mt-2 flex max-w-full flex-wrap items-center justify-center gap-1">
-          {departmentTags.map((dept) => (
+      {departmentBadges.length > 0 ? (
+        <div className="mt-2 flex max-w-full flex-wrap items-center justify-center gap-1.5">
+          {departmentBadges.map((badge) => (
             <span
-              key={dept}
-              className="max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight"
+              key={`${badge.name}-${badge.isSecondary ? 'sec' : 'pri'}`}
+              className={`max-w-full rounded px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] break-words text-center leading-tight ${
+                badge.isSecondary
+                  ? "border border-blue-200 bg-blue-50 text-blue-700"
+                  : "border border-neutral-300 bg-neutral-100/80 text-neutral-800"
+              }`}
+              title={badge.isSecondary ? "Secondary Department" : "Primary Department"}
             >
-              {dept}
+              {badge.name}
             </span>
           ))}
         </div>
@@ -311,7 +316,7 @@ function DirectoryTable({
           {employees.map((employee) => {
             const name = displayName(employee);
             const title = employee.jobTitle?.trim() || "";
-            const departmentTags = toDepartmentTags(employee.departmentName, employee.department2);
+            const departmentBadges = getDepartmentBadges(employee.departmentName, employee.department2);
             const deskBase = formatE164ForDisplay(employee.workPhone) || "";
             const ext = employee.extension?.trim() || "";
             const desk = deskBase;
@@ -329,14 +334,19 @@ function DirectoryTable({
                   </div>
                 </td>
                 <td className="px-4 py-3 text-neutral-600">
-                  {departmentTags.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                      {departmentTags.map((dept) => (
+                  {departmentBadges.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-1">
+                      {departmentBadges.map((badge) => (
                         <span
-                          key={dept}
-                          className="rounded border border-neutral-300 px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-700"
+                          key={`${badge.name}-${badge.isSecondary ? 'sec' : 'pri'}`}
+                          className={`rounded px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-[0.08em] ${
+                            badge.isSecondary
+                              ? "border border-blue-200 bg-blue-50 text-blue-700"
+                              : "border border-neutral-300 bg-neutral-100/80 text-neutral-700"
+                          }`}
+                          title={badge.isSecondary ? "Secondary Department" : "Primary Department"}
                         >
-                          {dept}
+                          {badge.name}
                         </span>
                       ))}
                     </div>
