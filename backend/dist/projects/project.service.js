@@ -483,21 +483,35 @@ let ProjectService = class ProjectService {
         }
     }
     async assertVenueCompany(venueCompanyId) {
-        const company = await this.companyRepo.findOne({
-            where: { companyId: venueCompanyId },
+        await this.assertVenueCompanies([venueCompanyId]);
+    }
+    async assertVenueCompanies(venueCompanyIds) {
+        if (!venueCompanyIds.length)
+            return;
+        const distinctIds = Array.from(new Set(venueCompanyIds));
+        const companies = await this.companyRepo.find({
+            where: { companyId: (0, typeorm_2.In)(distinctIds) },
+            select: ['companyId'],
         });
-        if (!company) {
-            throw new common_1.BadRequestException({
-                message: `Company with ID ${venueCompanyId} not found.`,
-            });
+        const foundCompanyIds = new Set(companies.map((c) => c.companyId));
+        for (const id of distinctIds) {
+            if (!foundCompanyIds.has(id)) {
+                throw new common_1.BadRequestException({
+                    message: `Company with ID ${id} not found.`,
+                });
+            }
         }
-        const venue = await this.venueRepo.findOne({
-            where: { companyId: venueCompanyId },
+        const venues = await this.venueRepo.find({
+            where: { companyId: (0, typeorm_2.In)(distinctIds) },
+            select: ['companyId'],
         });
-        if (!venue) {
-            throw new common_1.BadRequestException({
-                message: 'Company exists but is not a venue.',
-            });
+        const foundVenueIds = new Set(venues.map((v) => v.companyId));
+        for (const id of distinctIds) {
+            if (!foundVenueIds.has(id)) {
+                throw new common_1.BadRequestException({
+                    message: 'Company exists but is not a venue.',
+                });
+            }
         }
     }
     async assertProjectExists(id) {
@@ -726,12 +740,11 @@ let ProjectService = class ProjectService {
         if (normalized.length === 0)
             return;
         await this.assertDmasExist(manager, normalized);
-        for (const dmaid of normalized) {
-            await manager.save(engagement_project_dma_entity_1.EngagementProjectDma, manager.create(engagement_project_dma_entity_1.EngagementProjectDma, {
-                engagementProjectId: projectId,
-                dmaid,
-            }));
-        }
+        const dmaEntities = normalized.map((dmaid) => manager.create(engagement_project_dma_entity_1.EngagementProjectDma, {
+            engagementProjectId: projectId,
+            dmaid,
+        }));
+        await manager.save(engagement_project_dma_entity_1.EngagementProjectDma, dmaEntities);
     }
     async assertVenueInProject(projectId, venueId) {
         const venue = await this.projectVenueRepo.findOne({
@@ -969,8 +982,9 @@ let ProjectService = class ProjectService {
                 message: 'Select at least one venue.',
             });
         }
+        const venueIds = dto.venues.map((v) => v.venueCompanyId);
+        await this.assertVenueCompanies(venueIds);
         for (const v of dto.venues) {
-            await this.assertVenueCompany(v.venueCompanyId);
             await this.assertValidVenueStatus(v.venueStatus);
             for (const o of v.performanceOptions ?? []) {
                 if ((o.proposedDate ?? '').trim().length === 0)
@@ -989,24 +1003,30 @@ let ProjectService = class ProjectService {
                 const savedProject = await manager.save(engagement_project_entity_1.EngagementProject, project);
                 await this.insertProjectDmasInTransaction(manager, savedProject.engagementProjectId, dto.dmaIds);
                 const defaultOfferCreationStatus = dto.projectStage ?? 'Requested';
-                for (const v of dto.venues ?? []) {
-                    const pv = manager.create(engagement_project_venue_entity_1.EngagementProjectVenue, {
-                        engagementProjectId: savedProject.engagementProjectId,
-                        venueCompanyId: v.venueCompanyId,
-                        venueStatus: v.venueStatus,
-                        offerCreationStatus: v.offerCreationStatus ?? defaultOfferCreationStatus,
-                    });
-                    const savedPv = await manager.save(engagement_project_venue_entity_1.EngagementProjectVenue, pv);
+                const venueEntities = (dto.venues ?? []).map((v) => manager.create(engagement_project_venue_entity_1.EngagementProjectVenue, {
+                    engagementProjectId: savedProject.engagementProjectId,
+                    venueCompanyId: v.venueCompanyId,
+                    venueStatus: v.venueStatus,
+                    offerCreationStatus: v.offerCreationStatus ?? defaultOfferCreationStatus,
+                }));
+                const savedVenues = await manager.save(engagement_project_venue_entity_1.EngagementProjectVenue, venueEntities);
+                const allOptions = [];
+                (dto.venues ?? []).forEach((v, index) => {
+                    const savedPv = savedVenues[index];
                     for (const opt of v.performanceOptions ?? []) {
-                        const o = manager.create(engagement_project_performance_option_entity_1.EngagementProjectPerformanceOption, {
+                        if ((opt.proposedDate ?? '').trim().length === 0)
+                            continue;
+                        allOptions.push(manager.create(engagement_project_performance_option_entity_1.EngagementProjectPerformanceOption, {
                             engagementProjectId: savedProject.engagementProjectId,
                             engagementProjectVenueId: savedPv.engagementProjectVenueId,
                             proposedDate: opt.proposedDate,
                             proposedTime: this.normalizeTime(opt.proposedTime),
                             optionStatus: opt.optionStatus,
-                        });
-                        await manager.save(o);
+                        }));
                     }
+                });
+                if (allOptions.length > 0) {
+                    await manager.save(engagement_project_performance_option_entity_1.EngagementProjectPerformanceOption, allOptions);
                 }
                 await manager.update(tour_entity_1.Tour, { tourId: dto.tourId }, {
                     talentAgencyCompanyId: dto.talentAgencyCompanyId,
@@ -1064,12 +1084,11 @@ let ProjectService = class ProjectService {
                     const normalized = this.normalizeDmaIds(dto.dmaIds);
                     if (normalized.length > 0) {
                         await this.assertDmasExist(manager, normalized);
-                        for (const dmaid of normalized) {
-                            await manager.save(engagement_project_dma_entity_1.EngagementProjectDma, manager.create(engagement_project_dma_entity_1.EngagementProjectDma, {
-                                engagementProjectId: id,
-                                dmaid,
-                            }));
-                        }
+                        const dmaEntities = normalized.map((dmaid) => manager.create(engagement_project_dma_entity_1.EngagementProjectDma, {
+                            engagementProjectId: id,
+                            dmaid,
+                        }));
+                        await manager.save(engagement_project_dma_entity_1.EngagementProjectDma, dmaEntities);
                     }
                 }
                 if (dto.talentAgencyCompanyId !== undefined) {

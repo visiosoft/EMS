@@ -173,6 +173,7 @@ export declare class EntraProfileSyncService {
     private getWorkAuthorizationLinkColumn;
     private normalizeEmsCsaPayload;
     private upsertWorkAuthLink;
+    private ensureSecondaryContactAssignment;
     private findOrCreateDepartment;
     private findOrCreateRole;
 }

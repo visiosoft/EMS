@@ -595,6 +595,9 @@ let EntraProfileSyncService = class EntraProfileSyncService {
                 const deptId = await this.findOrCreateDepartment(manager, entra.user.department);
                 await manager.query(`UPDATE dbo.ContactAssignment SET DepartmentID = @0 WHERE ContactAssignmentID = @1`, [deptId, contact.contactAssignmentId]);
             }
+            const secDeptName = (entra.emsAttributes.Department2 ?? '').trim();
+            const secDeptId = secDeptName ? await this.findOrCreateDepartment(manager, secDeptName) : null;
+            await this.ensureSecondaryContactAssignment(manager, contact.contactId, contact.contactAssignmentId, secDeptId);
             await this.syncRoleFromEntra(manager, contact.contactAssignmentId, entra.emsAttributes.Role ?? null);
         });
     }
@@ -774,6 +777,11 @@ let EntraProfileSyncService = class EntraProfileSyncService {
             if (hasDepartment && entra.user.department) {
                 const deptId = await this.findOrCreateDepartment(manager, entra.user.department);
                 await manager.query(`UPDATE dbo.ContactAssignment SET DepartmentID = @0 WHERE ContactAssignmentID = @1`, [deptId, contact.contactAssignmentId]);
+            }
+            if (hasProfile && selectedFields.has('department2')) {
+                const secDeptName = (entra.emsAttributes.Department2 ?? '').trim();
+                const secDeptId = secDeptName ? await this.findOrCreateDepartment(manager, secDeptName) : null;
+                await this.ensureSecondaryContactAssignment(manager, contact.contactId, contact.contactAssignmentId, secDeptId);
             }
             if (hasProfile && selectedFields.has('role')) {
                 await this.syncRoleFromEntra(manager, contact.contactAssignmentId, entra.emsAttributes.Role ?? null, true);
@@ -1509,6 +1517,8 @@ let EntraProfileSyncService = class EntraProfileSyncService {
         addChange(changes, 'EmergencyContactCell', 'Emergency Contact Cell Phone', entra.emsAttributes.EmergencyContactCell ?? '', readString(current.emergencyContact, 'PhoneNumber'));
         addChange(changes, 'WorthAuthorizationLink', 'Work Authorization Photos', optCsaString(entra.emsAttributes.WorthAuthorizationLink) ?? '', current.workAuthLinkUrl);
         addChange(changes, 'Workstation', 'Work Station', entra.emsAttributes.Workstation ?? '', readString(current.profileRow, 'Workstation'));
+        const emsDepartment2 = readString(current.profileRow, 'Department2');
+        addChange(changes, 'Department2', 'Secondary Department (CSA)', entra.emsAttributes.Department2 ?? '', emsDepartment2);
         const emsPhoneMacComposite = composeDeskPhoneMAC(current.equipment);
         addChange(changes, 'DeskPhoneMAC', 'Desk Phone MAC Address', entra.emsAttributes.DeskPhoneMAC ?? '', emsPhoneMacComposite);
         const emsPcTagComposite = composePCServiceTag(current.equipment);
@@ -1579,6 +1589,10 @@ let EntraProfileSyncService = class EntraProfileSyncService {
         const emsWorkstation = readString(current.profileRow, 'Workstation');
         if (emsWorkstation !== (entra.emsAttributes.Workstation ?? ''))
             csaPayload.Workstation = emsWorkstation || null;
+        const emsDept2 = readString(current.profileRow, 'Department2');
+        if (emsDept2 !== (entra.emsAttributes.Department2 ?? '')) {
+            csaPayload.Department2 = emsDept2 || null;
+        }
         const { deskPhoneMac, deskPhoneBrand, deskPhoneModel, pcServiceTag, pcWindowsName } = current.equipment;
         const phoneMacComposite = composeDeskPhoneMAC(current.equipment);
         if (phoneMacComposite !== (entra.emsAttributes.DeskPhoneMAC ?? ''))
@@ -1597,14 +1611,62 @@ let EntraProfileSyncService = class EntraProfileSyncService {
             }
         }
         if (Object.keys(csaPayload).length > 0) {
-            await this.graphPatch(accessToken, `${GRAPH_BASE_URL}/users/${userId}`, {
-                customSecurityAttributes: {
-                    [EMS_ATTRIBUTE_SET]: {
-                        '@odata.type': `#Microsoft.DirectoryServices.CustomSecurityAttributeValue`,
-                        ...this.normalizeEmsCsaPayload(csaPayload),
+            const normalizedPayload = this.normalizeEmsCsaPayload(csaPayload);
+            try {
+                await this.graphPatch(accessToken, `${GRAPH_BASE_URL}/users/${userId}`, {
+                    customSecurityAttributes: {
+                        [EMS_ATTRIBUTE_SET]: {
+                            '@odata.type': `#Microsoft.DirectoryServices.CustomSecurityAttributeValue`,
+                            ...normalizedPayload,
+                        },
                     },
-                },
-            });
+                });
+            }
+            catch (batchError) {
+                console.warn(`[EntraSync] Batch CSA PATCH failed for user ${userId}, falling back to per-attribute updates: ${batchError instanceof Error ? batchError.message : String(batchError)}`);
+                let updatedAny = false;
+                const csaErrors = [];
+                for (const [attrName, attrValue] of Object.entries(normalizedPayload)) {
+                    try {
+                        await this.graphPatch(accessToken, `${GRAPH_BASE_URL}/users/${userId}`, {
+                            customSecurityAttributes: {
+                                [EMS_ATTRIBUTE_SET]: {
+                                    '@odata.type': `#Microsoft.DirectoryServices.CustomSecurityAttributeValue`,
+                                    [attrName]: attrValue,
+                                },
+                            },
+                        });
+                        updatedAny = true;
+                    }
+                    catch (singleError) {
+                        const msg = singleError instanceof Error ? singleError.message : String(singleError);
+                        console.error(`[EntraSync] Failed to update CSA attribute ${attrName} for user ${userId}: ${msg}`);
+                        if (attrName === 'DeskPhoneMAC' &&
+                            typeof attrValue === 'string' &&
+                            attrValue.includes(' - ')) {
+                            const macOnly = attrValue.split(' - ')[0].trim();
+                            try {
+                                await this.graphPatch(accessToken, `${GRAPH_BASE_URL}/users/${userId}`, {
+                                    customSecurityAttributes: {
+                                        [EMS_ATTRIBUTE_SET]: {
+                                            '@odata.type': `#Microsoft.DirectoryServices.CustomSecurityAttributeValue`,
+                                            DeskPhoneMAC: macOnly,
+                                        },
+                                    },
+                                });
+                                updatedAny = true;
+                                continue;
+                            }
+                            catch {
+                            }
+                        }
+                        csaErrors.push(`${attrName}: ${msg}`);
+                    }
+                }
+                if (!updatedAny && csaErrors.length > 0) {
+                    throw new Error(`All Entra Custom Security Attribute updates failed: ${csaErrors.join('; ')}`);
+                }
+            }
         }
         if (nativePatchFailure) {
             throw new Error(`Native Entra field update failed (${nativeKeys.join(', ')}): ${nativePatchFailure}`);
@@ -1753,6 +1815,51 @@ let EntraProfileSyncService = class EntraProfileSyncService {
         }
         const result = await executor.query(`INSERT INTO dbo.Link (LinkType, LinkURL, LinkName, LinkPath) OUTPUT INSERTED.LinkID VALUES (N'URL', @0, N'Work Authorization Photos', @1)`, [trimmed, trimmed.slice(0, 1024)]);
         return result?.[0]?.LinkID;
+    }
+    async ensureSecondaryContactAssignment(manager, contactId, primaryContactAssignmentId, secondaryDepartmentId) {
+        const primaryCa = (await manager.query(`SELECT TOP 1 CompanyID AS companyId, RoleID AS roleId, DepartmentID AS primaryDeptId
+       FROM dbo.ContactAssignment
+       WHERE ContactAssignmentID = @0`, [primaryContactAssignmentId]));
+        if (!primaryCa?.length)
+            return;
+        const companyId = readNumber(primaryCa[0], 'companyId');
+        const roleId = readNumber(primaryCa[0], 'roleId') ?? 0;
+        const primaryDeptId = readNumber(primaryCa[0], 'primaryDeptId');
+        if (!companyId)
+            return;
+        const otherCas = (await manager.query(`SELECT ContactAssignmentID AS id, DepartmentID AS deptId
+       FROM dbo.ContactAssignment
+       WHERE ContactID = @0 AND CompanyID = @1 AND ContactAssignmentID <> @2`, [contactId, companyId, primaryContactAssignmentId]));
+        if (secondaryDepartmentId != null &&
+            secondaryDepartmentId > 0 &&
+            secondaryDepartmentId !== primaryDeptId) {
+            const alreadyHasTarget = otherCas.some((ca) => readNumber(ca, 'deptId') === secondaryDepartmentId);
+            for (const ca of otherCas) {
+                const caId = readNumber(ca, 'id');
+                const caDeptId = readNumber(ca, 'deptId');
+                if (caId && caDeptId !== secondaryDepartmentId) {
+                    await manager.query(`DELETE FROM dbo.EmployeeComputer WHERE ContactAssignmentID = @0`, [caId]);
+                    await manager.query(`DELETE FROM dbo.EmployeeWorkLocation WHERE ContactAssignmentID = @0`, [caId]);
+                    await manager.query(`DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID = @0`, [caId]);
+                    await manager.query(`DELETE FROM dbo.ContactAssignment WHERE ContactAssignmentID = @0`, [caId]);
+                }
+            }
+            if (!alreadyHasTarget) {
+                await manager.query(`INSERT INTO dbo.ContactAssignment (ContactID, CompanyID, RoleID, DepartmentID, created_by, created_at)
+           VALUES (@0, @1, @2, @3, @4, SYSUTCDATETIME())`, [contactId, companyId, roleId, secondaryDepartmentId, 'Entra profile sync']);
+            }
+        }
+        else {
+            for (const ca of otherCas) {
+                const caId = readNumber(ca, 'id');
+                if (caId) {
+                    await manager.query(`DELETE FROM dbo.EmployeeComputer WHERE ContactAssignmentID = @0`, [caId]);
+                    await manager.query(`DELETE FROM dbo.EmployeeWorkLocation WHERE ContactAssignmentID = @0`, [caId]);
+                    await manager.query(`DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID = @0`, [caId]);
+                    await manager.query(`DELETE FROM dbo.ContactAssignment WHERE ContactAssignmentID = @0`, [caId]);
+                }
+            }
+        }
     }
     async findOrCreateDepartment(executor, name) {
         const trimmed = name.trim();
@@ -1961,15 +2068,31 @@ function parseServiceTagName(value) {
     return (parts[1] ?? '').trim();
 }
 function composeDeskPhoneMAC(eq) {
-    if (!eq.deskPhoneMac)
+    const mac = (eq.deskPhoneMac ?? '').trim();
+    if (!mac ||
+        mac === '?' ||
+        mac === '-' ||
+        mac.toLowerCase() === 'none' ||
+        mac.toLowerCase() === 'unknown') {
         return '';
-    const suffix = [eq.deskPhoneBrand, eq.deskPhoneModel].filter(Boolean).join(' ');
-    return suffix ? `${eq.deskPhoneMac} - ${suffix}` : eq.deskPhoneMac;
+    }
+    const brand = (eq.deskPhoneBrand ?? '').trim();
+    const model = (eq.deskPhoneModel ?? '').trim();
+    const parts = [brand, model.toLowerCase() === brand.toLowerCase() ? '' : model].filter(Boolean);
+    const suffix = parts.join(' ').trim();
+    return suffix ? `${mac} - ${suffix}` : mac;
 }
 function composePCServiceTag(eq) {
-    if (!eq.pcServiceTag)
+    const tag = (eq.pcServiceTag ?? '').trim();
+    if (!tag ||
+        tag === '?' ||
+        tag === '-' ||
+        tag.toLowerCase() === 'none' ||
+        tag.toLowerCase() === 'unknown') {
         return '';
-    return eq.pcWindowsName ? `${eq.pcServiceTag} - ${eq.pcWindowsName}` : eq.pcServiceTag;
+    }
+    const winName = (eq.pcWindowsName ?? '').trim();
+    return winName ? `${tag} - ${winName}` : tag;
 }
 function normalizeDate(value) {
     if (!value)

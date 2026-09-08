@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { AiProvider, AiSettings, AiSettingsPublic, ChatCompletionResponse, KnowledgeArticle, SchemaTableRule } from './ai.types';
+import { AiAnalyticsSummary, AiProvider, AiSettings, AiSettingsPublic, ChatCompletionResponse, KnowledgeArticle, SchemaTableRule } from './ai.types';
 import { AiToolsExecutor } from './ai-tools.executor';
 export declare class AiService {
     private readonly config;
@@ -17,6 +17,12 @@ export declare class AiService {
     getKnowledgeArticles(): KnowledgeArticle[];
     saveKnowledgeArticle(article: Partial<KnowledgeArticle>): KnowledgeArticle[];
     deleteKnowledgeArticle(id: string): KnowledgeArticle[];
+    private pruneMessageHistory;
+    private loadLogs;
+    private persistLogs;
+    private logQueryRecord;
+    saveFeedback(logId: string, feedback: 'thumbs_up' | 'thumbs_down', comment?: string): boolean;
+    getAnalytics(): AiAnalyticsSummary;
     testConnection(provider?: AiProvider, apiKey?: string, model?: string): Promise<{
         success: boolean;
         message: string;

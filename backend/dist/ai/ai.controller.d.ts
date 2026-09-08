@@ -32,6 +32,11 @@ export declare class ChatRequestDto {
     modelOverride?: string;
     customSystemPrompt?: string;
 }
+export declare class SubmitFeedbackDto {
+    logId: string;
+    feedback: 'thumbs_up' | 'thumbs_down';
+    comment?: string;
+}
 export declare class AiController {
     private readonly aiService;
     constructor(aiService: AiService);
@@ -67,4 +72,8 @@ export declare class AiController {
     deleteKnowledgeArticle(id: string): {
         articles: KnowledgeArticle[];
     };
+    submitFeedback(body: SubmitFeedbackDto): {
+        success: boolean;
+    };
+    getAnalytics(): import("./ai.types").AiAnalyticsSummary;
 }

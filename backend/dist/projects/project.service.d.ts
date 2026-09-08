@@ -87,6 +87,7 @@ export declare class ProjectService {
     private assertTourExists;
     private assertCompanyIsTalentAgency;
     private assertVenueCompany;
+    private assertVenueCompanies;
     private assertProjectExists;
     private projectXrefKey;
     private getConvertedEngagementId;

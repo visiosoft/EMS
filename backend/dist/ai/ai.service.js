@@ -65,6 +65,13 @@ function getSettingsFilePath() {
     }
     return path.resolve(cwd, 'backend', 'data', 'ai-settings.json');
 }
+function getLogsFilePath() {
+    const cwd = process.cwd();
+    if (path.basename(cwd) === 'backend') {
+        return path.resolve(cwd, 'data', 'ai-logs.json');
+    }
+    return path.resolve(cwd, 'backend', 'data', 'ai-logs.json');
+}
 let AiService = AiService_1 = class AiService {
     config;
     toolsExecutor;
@@ -238,6 +245,92 @@ let AiService = AiService_1 = class AiService {
         (0, knowledge_base_catalog_1.saveKnowledgeBase)(current);
         return current;
     }
+    pruneMessageHistory(messages, maxTurns = 10, maxCharLength = 3000) {
+        if (!messages || messages.length === 0)
+            return [];
+        let trimmed = messages.slice(-maxTurns);
+        trimmed = trimmed.map((msg, idx) => {
+            const isLatest = idx === trimmed.length - 1;
+            if (!isLatest && msg.content && msg.content.length > maxCharLength) {
+                return {
+                    ...msg,
+                    content: msg.content.substring(0, maxCharLength) + '\n\n[...Previous turn context truncated for memory efficiency...]',
+                };
+            }
+            return msg;
+        });
+        return trimmed;
+    }
+    loadLogs() {
+        try {
+            const filePath = getLogsFilePath();
+            if (fs.existsSync(filePath)) {
+                const raw = fs.readFileSync(filePath, 'utf-8');
+                return JSON.parse(raw);
+            }
+        }
+        catch (err) {
+            this.logger.warn(`Could not read AI logs: ${err.message}`);
+        }
+        return [];
+    }
+    persistLogs(logs) {
+        try {
+            const filePath = getLogsFilePath();
+            const dir = path.dirname(filePath);
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+            }
+            const trimmed = logs.slice(-200);
+            fs.writeFileSync(filePath, JSON.stringify(trimmed, null, 2), 'utf-8');
+        }
+        catch (err) {
+            this.logger.error(`Could not persist AI logs: ${err.message}`);
+        }
+    }
+    logQueryRecord(record) {
+        const logs = this.loadLogs();
+        logs.push(record);
+        this.persistLogs(logs);
+    }
+    saveFeedback(logId, feedback, comment) {
+        const logs = this.loadLogs();
+        const target = logs.find((l) => l.id === logId);
+        if (target) {
+            target.feedback = feedback;
+            if (comment !== undefined)
+                target.feedbackComment = comment;
+            this.persistLogs(logs);
+            return true;
+        }
+        return false;
+    }
+    getAnalytics() {
+        const logs = this.loadLogs();
+        const totalQueries = logs.length;
+        const thumbsUpCount = logs.filter((l) => l.feedback === 'thumbs_up').length;
+        const thumbsDownCount = logs.filter((l) => l.feedback === 'thumbs_down').length;
+        const totalLatency = logs.reduce((acc, l) => acc + (l.latencyMs || 0), 0);
+        const avgLatencyMs = totalQueries > 0 ? Math.round(totalLatency / totalQueries) : 0;
+        const toolCounts = {};
+        logs.forEach((l) => {
+            (l.toolsUsed || []).forEach((t) => {
+                toolCounts[t] = (toolCounts[t] || 0) + 1;
+            });
+        });
+        const topTools = Object.entries(toolCounts)
+            .map(([toolName, count]) => ({ toolName, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 10);
+        return {
+            totalQueries,
+            thumbsUpCount,
+            thumbsDownCount,
+            avgLatencyMs,
+            topTools,
+            recentLogs: logs.slice().reverse().slice(0, 50),
+        };
+    }
     async testConnection(provider, apiKey, model) {
         const targetProvider = provider || this.settings.provider;
         const key = (apiKey != null && apiKey.trim().length > 0)
@@ -328,26 +421,49 @@ let AiService = AiService_1 = class AiService {
         const provider = options?.providerOverride || this.settings.provider;
         const model = options?.modelOverride || this.settings.model;
         const systemPrompt = this.buildEffectiveSystemPrompt(options?.customSystemPrompt);
+        const prunedMessages = this.pruneMessageHistory(userMessages, 10, 3000);
         const tools = this.getToolsCatalog();
-        if (provider === 'openai') {
-            try {
-                return await this.runOpenAiChat(userMessages, model, systemPrompt, tools);
+        const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const startTime = Date.now();
+        const userQuery = userMessages[userMessages.length - 1]?.content || 'Empty query';
+        let response;
+        try {
+            if (provider === 'openai') {
+                response = await this.runOpenAiChat(prunedMessages, model, systemPrompt, tools);
             }
-            catch (err) {
-                this.logger.error(`OpenAI Chat Error: ${err.message}`, err.stack);
-                const detailMsg = err?.error?.message || err?.message || 'OpenAI chat completion failed.';
-                throw new common_1.BadRequestException(`OpenAI Error: ${detailMsg}`);
+            else {
+                response = await this.runAnthropicChat(prunedMessages, model, systemPrompt, tools);
             }
+            response.id = logId;
+            const latencyMs = Date.now() - startTime;
+            this.logQueryRecord({
+                id: logId,
+                timestamp: new Date().toISOString(),
+                provider,
+                model,
+                userQuery,
+                answerSummary: response.answer.substring(0, 300),
+                toolsUsed: (response.toolsUsed || []).map((t) => t.name),
+                latencyMs,
+            });
+            return response;
         }
-        else {
-            try {
-                return await this.runAnthropicChat(userMessages, model, systemPrompt, tools);
-            }
-            catch (err) {
-                this.logger.error(`Anthropic Chat Error: ${err.message}`, err.stack);
-                const detailMsg = err?.error?.message || err?.message || 'Anthropic chat completion failed.';
-                throw new common_1.BadRequestException(`Anthropic Claude Error: ${detailMsg}`);
-            }
+        catch (err) {
+            const latencyMs = Date.now() - startTime;
+            this.logger.error(`AI Chat Error (${provider}): ${err.message}`, err.stack);
+            const detailMsg = err?.error?.message || err?.message || 'Chat completion failed.';
+            this.logQueryRecord({
+                id: logId,
+                timestamp: new Date().toISOString(),
+                provider,
+                model,
+                userQuery,
+                answerSummary: '',
+                toolsUsed: [],
+                latencyMs,
+                error: detailMsg,
+            });
+            throw new common_1.BadRequestException(`${provider === 'openai' ? 'OpenAI' : 'Anthropic Claude'} Error: ${detailMsg}`);
         }
     }
     async runOpenAiChat(userMessages, model, systemPrompt, tools) {

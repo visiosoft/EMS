@@ -12,7 +12,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AiController = exports.ChatRequestDto = exports.ChatMessageDto = exports.TestConnectionDto = exports.UpdateTableRulesDto = exports.UpdateAiSettingsDto = void 0;
+exports.AiController = exports.SubmitFeedbackDto = exports.ChatRequestDto = exports.ChatMessageDto = exports.TestConnectionDto = exports.UpdateTableRulesDto = exports.UpdateAiSettingsDto = void 0;
 const common_1 = require("@nestjs/common");
 const class_validator_1 = require("class-validator");
 const ai_service_1 = require("./ai.service");
@@ -159,6 +159,25 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], ChatRequestDto.prototype, "customSystemPrompt", void 0);
+class SubmitFeedbackDto {
+    logId;
+    feedback;
+    comment;
+}
+exports.SubmitFeedbackDto = SubmitFeedbackDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], SubmitFeedbackDto.prototype, "logId", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], SubmitFeedbackDto.prototype, "feedback", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], SubmitFeedbackDto.prototype, "comment", void 0);
 let AiController = class AiController {
     aiService;
     constructor(aiService) {
@@ -230,6 +249,13 @@ let AiController = class AiController {
         return {
             articles: this.aiService.deleteKnowledgeArticle(id),
         };
+    }
+    submitFeedback(body) {
+        const success = this.aiService.saveFeedback(body.logId, body.feedback, body.comment);
+        return { success };
+    }
+    getAnalytics() {
+        return this.aiService.getAnalytics();
     }
 };
 exports.AiController = AiController;
@@ -305,6 +331,19 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", void 0)
 ], AiController.prototype, "deleteKnowledgeArticle", null);
+__decorate([
+    (0, common_1.Post)('feedback'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [SubmitFeedbackDto]),
+    __metadata("design:returntype", void 0)
+], AiController.prototype, "submitFeedback", null);
+__decorate([
+    (0, common_1.Get)('analytics'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], AiController.prototype, "getAnalytics", null);
 exports.AiController = AiController = __decorate([
     (0, common_1.Controller)('ai'),
     __metadata("design:paramtypes", [ai_service_1.AiService])
