@@ -22,7 +22,7 @@ import { GraphAvatar } from './GraphAvatar';
 import { cn } from '@/lib/utils';
 import { getActiveAccount, acquireGraphAccessToken } from '@/auth/entra';
 import { formatE164ForDisplay } from '@/lib/contactPhoneField';
-import { getDepartmentBadges } from '@/lib/departmentTags';
+import { getDepartmentBadges, getDepartmentFilterNames } from '@/lib/departmentTags';
 import {
   Select,
   SelectContent,
@@ -39,8 +39,8 @@ function displayName(member: OrganizationChartMember): string {
   return member.displayName || `${member.firstName} ${member.lastName}`.trim() || '—';
 }
 
-function departmentOf(member: OrganizationChartMember): string {
-  return member.departmentName?.trim() || 'Unassigned';
+function departmentNamesOf(member: OrganizationChartMember): string[] {
+  return getDepartmentFilterNames(member.departmentName, member.department2);
 }
 
 function compareByName(a: OrganizationChartMember, b: OrganizationChartMember, primary: AlphaSort): number {
@@ -251,8 +251,9 @@ export function OrganizationalChartPage({ onNavigate }: { onNavigate?: (view: st
   const departmentChips = useMemo(() => {
     const counts = new Map<string, number>();
     for (const m of allMembers) {
-      const dept = departmentOf(m);
-      counts.set(dept, (counts.get(dept) ?? 0) + 1);
+      for (const dept of departmentNamesOf(m)) {
+        counts.set(dept, (counts.get(dept) ?? 0) + 1);
+      }
     }
     return Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
@@ -273,12 +274,12 @@ export function OrganizationalChartPage({ onNavigate }: { onNavigate?: (view: st
   const filtered = useMemo(() => {
     let result = allMembers;
     if (showChips && activeDepartment !== ALL_DEPARTMENTS) {
-      result = result.filter((m) => departmentOf(m) === activeDepartment);
+      result = result.filter((m) => departmentNamesOf(m).includes(activeDepartment));
     }
     const q = search.trim().toLowerCase();
     if (q) {
       result = result.filter((m) =>
-        [m.displayName, m.jobTitle, m.roleName, m.departmentName, m.email]
+        [m.displayName, m.jobTitle, m.roleName, m.departmentName, m.department2, m.email]
           .join(' ')
           .toLowerCase()
           .includes(q),
@@ -295,15 +296,17 @@ export function OrganizationalChartPage({ onNavigate }: { onNavigate?: (view: st
   const byDepartment = useMemo(() => {
     const groups = new Map<string, OrganizationChartMember[]>();
     for (const m of filtered) {
-      const dept = departmentOf(m);
-      const bucket = groups.get(dept);
-      if (bucket) bucket.push(m);
-      else groups.set(dept, [m]);
+      const departments = activeDepartment === ALL_DEPARTMENTS ? departmentNamesOf(m) : [activeDepartment];
+      for (const dept of departments) {
+        const bucket = groups.get(dept);
+        if (bucket) bucket.push(m);
+        else groups.set(dept, [m]);
+      }
     }
     return Array.from(groups.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([dept, members]) => ({ dept, members: members.sort((a, b) => a.sortOrder - b.sortOrder || compareByName(a, b, 'last')) }));
-  }, [filtered]);
+  }, [filtered, activeDepartment]);
 
   const handleRowClick = onNavigate
     ? (contactId: number) => onNavigate('contacts', { selectedContactId: contactId })

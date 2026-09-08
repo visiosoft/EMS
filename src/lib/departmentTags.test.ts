@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toDepartmentTags, getDepartmentBadges } from './departmentTags';
+import { toDepartmentTags, getDepartmentBadges, getDepartmentFilterNames } from './departmentTags';
 
 describe('toDepartmentTags', () => {
   it('renders department 1 and department 2 as separate tags', () => {
@@ -60,5 +60,20 @@ describe('getDepartmentBadges', () => {
     expect(getDepartmentBadges('Executive', null)).toEqual([
       { name: 'Executive', isSecondary: false },
     ]);
+  });
+});
+
+describe('getDepartmentFilterNames', () => {
+  it('returns separate filter names for joined assignments and secondary department', () => {
+    expect(
+      getDepartmentFilterNames(
+        'Developer New 445589, Development & Testing',
+        'Developer New 445589',
+      ),
+    ).toEqual(['Development & Testing', 'Developer New 445589']);
+  });
+
+  it('falls back to Unassigned when no department names are present', () => {
+    expect(getDepartmentFilterNames(null, '')).toEqual(['Unassigned']);
   });
 });

@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { fetchIaeStaffEmployees, type IaeEmployee } from "@/api/iaeEmployeesApi";
 import { formatE164ForDisplay } from "@/lib/contactPhoneField";
-import { getDepartmentBadges } from "@/lib/departmentTags";
+import { getDepartmentBadges, getDepartmentFilterNames } from "@/lib/departmentTags";
 import { InternalPageHero } from "../components/InternalPageHero";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
 import { HubGraphAvatar } from "@/components/ems/GraphAvatar";
@@ -42,8 +42,8 @@ type AlphaSort = "first" | "last";
 /** Sentinel for the "All" department chip — no real department can collide with it. */
 const ALL_DEPARTMENTS = "__all__";
 
-function departmentOf(employee: IaeEmployee): string {
-  return employee.departmentName?.trim() || "Unassigned";
+function departmentNamesOf(employee: IaeEmployee): string[] {
+  return getDepartmentFilterNames(employee.departmentName, employee.department2);
 }
 
 function displayName(employee: IaeEmployee): string {
@@ -424,7 +424,7 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
     const q = search.trim().toLowerCase();
     if (!q) return employees;
     return employees.filter((employee) =>
-      [displayName(employee), employee.jobTitle ?? "", employee.roleName ?? "", employee.departmentName ?? "", employee.email]
+      [displayName(employee), employee.jobTitle ?? "", employee.roleName ?? "", employee.departmentName ?? "", employee.department2 ?? "", employee.email]
         .join(" ")
         .toLowerCase()
         .includes(q),
@@ -439,11 +439,12 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
   const departmentChips = useMemo(() => {
     const counts = new Map<string, { count: number; weight: number }>();
     for (const employee of searched) {
-      const name = departmentOf(employee);
-      const entry = counts.get(name) ?? { count: 0, weight: 0 };
-      entry.count += 1;
-      entry.weight = Math.max(entry.weight, roleWeight(employee.roleName));
-      counts.set(name, entry);
+      for (const name of departmentNamesOf(employee)) {
+        const entry = counts.get(name) ?? { count: 0, weight: 0 };
+        entry.count += 1;
+        entry.weight = Math.max(entry.weight, roleWeight(employee.roleName));
+        counts.set(name, entry);
+      }
     }
     return Array.from(counts.entries())
       .map(([name, entry]) => ({ name, ...entry }))
@@ -461,7 +462,7 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
     () =>
       activeDepartment === ALL_DEPARTMENTS
         ? searched
-        : searched.filter((employee) => departmentOf(employee) === activeDepartment),
+        : searched.filter((employee) => departmentNamesOf(employee).includes(activeDepartment)),
     [searched, activeDepartment],
   );
 
@@ -473,10 +474,12 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
   const byDepartment = useMemo(() => {
     const groups = new Map<string, IaeEmployee[]>();
     for (const employee of filtered) {
-      const dept = employee.departmentName?.trim() || "Unassigned";
-      const bucket = groups.get(dept);
-      if (bucket) bucket.push(employee);
-      else groups.set(dept, [employee]);
+      const departments = activeDepartment === ALL_DEPARTMENTS ? departmentNamesOf(employee) : [activeDepartment];
+      for (const dept of departments) {
+        const bucket = groups.get(dept);
+        if (bucket) bucket.push(employee);
+        else groups.set(dept, [employee]);
+      }
     }
     return Array.from(groups.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
@@ -486,7 +489,7 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
           (a, b) => (a.departmentRank ?? 999) - (b.departmentRank ?? 999) || roleWeight(b.roleName) - roleWeight(a.roleName) || compareByName(a, b, "last"),
         ),
       }));
-  }, [filtered]);
+  }, [filtered, activeDepartment]);
 
   const showChips =
     ((mode === "tiles" && tilesView === "dept") || (mode === "table" && tableView === "dept"))
