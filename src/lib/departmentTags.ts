@@ -81,3 +81,11 @@ export function getDepartmentBadges(
 
   return badges;
 }
+
+export function getDepartmentFilterNames(
+  departmentName?: string | null,
+  department2?: string | null,
+): string[] {
+  const names = getDepartmentBadges(departmentName, department2).map((badge) => badge.name);
+  return names.length > 0 ? names : ["Unassigned"];
+}
