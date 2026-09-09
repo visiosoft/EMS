@@ -5797,6 +5797,8 @@ function EngagementEventBusinessPanel({
   const [attrOveragePercent, setAttrOveragePercent] = useState('');
   const [attrRoyaltyPercent, setAttrRoyaltyPercent] = useState('');
   const [attrMiddleMoney, setAttrMiddleMoney] = useState('');
+  const [attrPromoterProfitPercent, setAttrPromoterProfitPercent] = useState('');
+  const [attrArtistBackendPercent, setAttrArtistBackendPercent] = useState('');
   const [attrBuyouts, setAttrBuyouts] = useState('');
   const [attrCollateralizedDeal, setAttrCollateralizedDeal] = useState('');
   const [attrTourOfferLink, setAttrTourOfferLink] = useState('');
@@ -5883,6 +5885,8 @@ function EngagementEventBusinessPanel({
     setAttrOveragePercent(numFieldToString(d.overagePercent));
     setAttrRoyaltyPercent(numFieldToString(d.artistRoyaltyRatePercent));
     setAttrMiddleMoney(numFieldToString(d.artistMiddleMoney));
+    setAttrPromoterProfitPercent(numFieldToString(d.artistPromoterProfitPercent));
+    setAttrArtistBackendPercent(numFieldToString(d.artistBackendPercent));
     setAttrBuyouts(numFieldToString(d.artistBuyouts));
     setAttrCollateralizedDeal(d.artistPartOfCollateralizedDeal == null ? '' : d.artistPartOfCollateralizedDeal ? 'Yes' : 'No');
     setAttrTourOfferLink(d.artistTourOfferLink ?? '');
@@ -6144,6 +6148,10 @@ function EngagementEventBusinessPanel({
       if (!royalty.ok) throw new Error((royalty as { ok: false; message: string }).message);
       const middleMoney = parseOptionalDecimal(attrMiddleMoney, 'Middle Money');
       if (!middleMoney.ok) throw new Error((middleMoney as { ok: false; message: string }).message);
+      const promoterProfit = parseOptionalDecimal(attrPromoterProfitPercent, 'Promoter Profit (%)');
+      if (!promoterProfit.ok) throw new Error((promoterProfit as { ok: false; message: string }).message);
+      const artistBackend = parseOptionalDecimal(attrArtistBackendPercent, 'Artist Backend (%)');
+      if (!artistBackend.ok) throw new Error((artistBackend as { ok: false; message: string }).message);
       const buyouts = parseOptionalDecimal(attrBuyouts, 'Buyouts');
       if (!buyouts.ok) throw new Error((buyouts as { ok: false; message: string }).message);
 
@@ -6153,6 +6161,8 @@ function EngagementEventBusinessPanel({
         overagePercent: (overage as { ok: true; value: number | null }).value,
         artistRoyaltyRatePercent: (royalty as { ok: true; value: number | null }).value,
         artistMiddleMoney: (middleMoney as { ok: true; value: number | null }).value,
+        artistPromoterProfitPercent: attrDealType === 'Promoter Profit' ? (promoterProfit as { ok: true; value: number | null }).value : null,
+        artistBackendPercent: attrDealType === 'Promoter Profit' ? (artistBackend as { ok: true; value: number | null }).value : null,
         artistBuyouts: (buyouts as { ok: true; value: number | null }).value,
         artistPartOfCollateralizedDeal: yesNoToBool(attrCollateralizedDeal),
         artistTourOfferLink: tourOfferUrl || null,
@@ -6521,9 +6531,13 @@ function EngagementEventBusinessPanel({
           {attrDealType === 'Versus' && fieldRow('VS Percentage (%)',
             <span className="text-sm text-text-primary">{d?.artistVersusPercent != null ? `${d.artistVersusPercent}%` : '—'}</span>)}
           {attrDealType === 'Promoter Profit' && fieldRow('Promoter Profit (%)',
-            <span className="text-sm text-text-primary">{d?.artistPromoterProfitPercent != null ? `${d.artistPromoterProfitPercent}%` : '—'}</span>)}
+            <input className={inputCls} inputMode="decimal" value={attrPromoterProfitPercent}
+              onChange={(e) => { markAttrTermsEdited(); setAttrPromoterProfitPercent(e.target.value); }}
+              disabled={disabled} />)}
           {attrDealType === 'Promoter Profit' && fieldRow('Artist Backend (%)',
-            <span className="text-sm text-text-primary">{d?.artistBackendPercent != null ? `${d.artistBackendPercent}%` : '—'}</span>)}
+            <input className={inputCls} inputMode="decimal" value={attrArtistBackendPercent}
+              onChange={(e) => { markAttrTermsEdited(); setAttrArtistBackendPercent(e.target.value); }}
+              disabled={disabled} />)}
         </div>
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Buyouts ($)',
@@ -11757,8 +11771,8 @@ export function EngagementDetailPage({
         },
       });
       // Also invalidate venue-level engagement lists so the Companies → Venues tab stays in sync.
-      // Use removeQueries so the data is fully cleared — invalidateQueries alone won't refetch
-      // because the global QueryClient has refetchOnMount: false.
+      // removeQueries (not invalidate) so a deleted engagement cannot be rendered from cache
+      // for the frame before the refetch lands.
       qc.removeQueries({
         predicate: (query) => query.queryKey[0] === 'companies' && query.queryKey[2] === 'engagements',
       });

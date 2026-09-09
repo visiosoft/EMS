@@ -18,6 +18,7 @@ import { AllVenuesPage } from '@/components/ems/AllVenuesPage';
 import { ProfilePage } from '@/components/ems/ProfilePage';
 import { OrganizationalChartPage } from '@/components/ems/OrganizationalChartPage';
 import { USERS } from '@/data/constants';
+import { refreshStaleQueries, setActiveViewKey } from '@/api/queryClient';
 import type { ToastItem } from '@/components/ems/Primitives';
 import { cn } from '@/lib/utils';
 
@@ -403,6 +404,16 @@ const Index = () => {
       if (timeoutId) window.clearTimeout(timeoutId);
     };
   }, [currentView, viewData.createEngagement]);
+
+  // Cached views stay mounted (just hidden), so React Query's refetch-on-mount never fires
+  // when the user comes back to one. Refresh whatever went stale while it was hidden.
+  const activeViewKey = makeViewCacheKey(currentView, viewData);
+  // Set during render, not in an effect: a view's queries subscribe while it commits, which
+  // is before this component's effects run, and each query is tagged with the key set here.
+  setActiveViewKey(activeViewKey);
+  useEffect(() => {
+    refreshStaleQueries();
+  }, [activeViewKey]);
 
   const navigate = useCallback((view: string, data?: unknown) => {
     setCurrentView(view);

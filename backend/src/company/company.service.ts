@@ -4034,8 +4034,12 @@ export class CompanyService {
       item.isStaff =
         item.isStaff || isTruthyBit(pickRawRowValue(row, 'companyIsInternal'));
       const companyName = String(pickRawRowValue(row, 'companyName') ?? '').trim();
-      pushUnique(item.companyIds, companyIdValue);
-      pushUnique(item.companyNames, companyName);
+      // Keyed on the id, never the name: two distinct companies can share a name, and
+      // callers read `companyNames[i]` as the name of `companyIds[i]`.
+      if (!item.companyIds.includes(companyIdValue)) {
+        item.companyIds.push(companyIdValue);
+        item.companyNames.push(companyName);
+      }
       group = item.assignments.find((g) => g.companyId === companyIdValue);
       if (!group) {
         group = {

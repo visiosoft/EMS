@@ -20,7 +20,7 @@ import { apiFetch } from "@/api/config";
 import { HubGraphAvatar } from "@/components/ems/GraphAvatar";
 import { getActiveAccount, acquireGraphAccessToken } from "@/auth/entra";
 import { formatE164ForDisplay } from "@/lib/contactPhoneField";
-import { toDepartmentTags } from "@/lib/departmentTags";
+import { getDepartmentBadges } from "@/lib/departmentTags";
 import { fetchEntraJobTitles, type EntraJobTitleMap } from "@/api/entraJobTitles";
 
 type DepartmentLookup = { departmentId: number; departmentName: string };
@@ -356,7 +356,7 @@ export function DepartmentDetailPage() {
                   {enrichedTeamMembers.map((member) => {
                     const name = `${member.firstName} ${member.lastName}`.trim() || "\u2014";
                     const title = member.jobTitle?.trim();
-                    const departmentTags = toDepartmentTags(member.departmentName, member.department2);
+                    const departmentBadges = getDepartmentBadges(member.departmentName, member.department2);
                     const cellPhone = formatE164ForDisplay(member.cellPhone);
                     const deskBase = (() => {
                       const digits = (member.workPhone ?? "").replace(/\D/g, "");
@@ -386,14 +386,19 @@ export function DepartmentDetailPage() {
                             <span className="ml-2 text-xs font-bold text-blue-600">(You)</span>
                           )}
                         </p>
-                        {departmentTags.length > 0 ? (
-                          <div className="mt-2 flex max-w-full flex-wrap items-center justify-center gap-1">
-                            {departmentTags.map((dept) => (
+                        {departmentBadges.length > 0 ? (
+                          <div className="mt-2 flex max-w-full flex-wrap items-center justify-center gap-1.5">
+                            {departmentBadges.map((badge) => (
                               <span
-                                key={dept}
-                                className="max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight"
+                                key={`${badge.name}-${badge.isSecondary ? 'sec' : 'pri'}`}
+                                className={`max-w-full rounded px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] break-words text-center leading-tight ${
+                                  badge.isSecondary
+                                    ? "border border-blue-200 bg-blue-50 text-blue-700"
+                                    : "border border-neutral-300 bg-neutral-100/80 text-neutral-800"
+                                }`}
+                                title={badge.isSecondary ? "Secondary Department" : "Primary Department"}
                               >
-                                {dept}
+                                {badge.name}
                               </span>
                             ))}
                           </div>

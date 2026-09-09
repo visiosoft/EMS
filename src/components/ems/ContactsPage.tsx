@@ -605,14 +605,15 @@ function ContactDetailDrawer({
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-lg font-semibold text-text-primary">{contactName(row)}</h2>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-muted">
-            {row.companyNames.length > 0 ? (
+            {row.assignments.length > 0 ? (
               <>
-                {row.companyNames.map((name, idx) => (
-                  onNavigate && row.companyIds[idx] ? (
+                {row.assignments.map((asg) => {
+                  const name = asg.companyName || `Company #${asg.companyId}`;
+                  return onNavigate ? (
                     <button
-                      key={name}
+                      key={asg.companyId}
                       type="button"
-                      onClick={() => onNavigate('companies', { selectedCompanyId: row.companyIds[idx] })}
+                      onClick={() => onNavigate('companies', { selectedCompanyId: asg.companyId })}
                       className="inline-flex items-center gap-1 rounded-md bg-ems-accent-dim px-2 py-0.5 text-[11px] font-medium text-ems-accent hover:bg-ems-accent/20 hover:underline transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40"
                       title={`Open ${name}`}
                     >
@@ -621,14 +622,14 @@ function ContactDetailDrawer({
                     </button>
                   ) : (
                     <span
-                      key={name}
+                      key={asg.companyId}
                       className="inline-flex items-center gap-1 rounded-md bg-ems-accent-dim px-2 py-0.5 text-[11px] font-medium text-ems-accent"
                     >
                       <Building2 className="h-3 w-3" aria-hidden />
                       {name}
                     </span>
-                  )
-                ))}
+                  );
+                })}
                 {row.isStaff ? internalStaffChip() : null}
               </>
             ) : (
@@ -706,7 +707,7 @@ function ContactDetailDrawer({
                     <p className="text-sm text-text-muted">No company assignments.</p>
                   ) : (
                     row.assignments.map((asg, idx) => {
-                      const companyName = row.companyNames[idx] || `Company #${asg.companyId}`;
+                      const companyName = asg.companyName || `Company #${asg.companyId}`;
                       return (
                         <div key={`${asg.companyId}-${idx}`} className="flex items-center gap-3 rounded-md border border-border bg-elevated px-3 py-2">
                           <Building2 className="h-4 w-4 shrink-0 text-text-muted" aria-hidden />
@@ -841,7 +842,7 @@ function ContactDetailDrawer({
                   <p className="text-sm text-text-muted">No company assignments.</p>
                 ) : (
                   row.assignments.map((asg, idx) => {
-                    const companyName = row.companyNames[idx] || `Company #${asg.companyId}`;
+                    const companyName = asg.companyName || `Company #${asg.companyId}`;
                     return (
                       <div key={`${asg.companyId}-${idx}`} className="flex items-center gap-3 rounded-md border border-border bg-elevated px-3 py-2">
                         <Building2 className="h-4 w-4 shrink-0 text-text-muted" aria-hidden />

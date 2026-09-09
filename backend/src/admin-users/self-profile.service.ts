@@ -309,6 +309,150 @@ export class SelfProfileService {
       }
     }
 
+    // 2c. Update Secondary Department (Department2)
+    if (dto.secondaryDepartment !== undefined || dto.department2 !== undefined) {
+      const secDept = (dto.secondaryDepartment ?? dto.department2 ?? '').trim();
+      if (await this.tableExists('EmployeeProfile')) {
+        let hasDept2Col = await this.hasColumn('EmployeeProfile', 'Department2');
+        if (!hasDept2Col) {
+          try {
+            await this.dataSource.query(
+              `ALTER TABLE dbo.EmployeeProfile ADD Department2 nvarchar(100) NULL`,
+            );
+            hasDept2Col = true;
+          } catch {
+            // column might already exist or concurrent alter
+          }
+        }
+        if (hasDept2Col) {
+          const exists = await this.dataSource.query(
+            `SELECT 1 AS found FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+            [contactId],
+          );
+          if (exists.length > 0) {
+            await this.dataSource.query(
+              `UPDATE dbo.EmployeeProfile SET Department2 = @0, modified_by = @1, modified_at = SYSUTCDATETIME() WHERE ContactID = @2`,
+              [secDept || null, 'WMS profile update', contactId],
+            );
+          } else {
+            await this.dataSource.query(
+              `INSERT INTO dbo.EmployeeProfile (ContactID, Department2, created_by, created_at, modified_by, modified_at)
+               VALUES (@0, @1, @2, SYSUTCDATETIME(), @2, SYSUTCDATETIME())`,
+              [contactId, secDept || null, 'WMS profile update'],
+            );
+          }
+        }
+      }
+
+      // 2d. Department lookup / create and ContactAssignment link
+      let deptId: number | null = null;
+      if (secDept) {
+        // 1. Check whether department already exists in the system
+        const deptRows = (await this.dataSource.query(
+          `SELECT TOP 1 DepartmentID AS departmentId FROM dbo.Department WHERE LOWER(LTRIM(RTRIM(DepartmentName))) = LOWER(@0)`,
+          [secDept],
+        )) as Record<string, unknown>[];
+        if (deptRows.length > 0) {
+          deptId = readNumber(deptRows[0], 'departmentId');
+        } else {
+          // If it does not exist, create a new department and use the newly created department
+          const insertRows = (await this.dataSource.query(
+            `INSERT INTO dbo.Department (DepartmentName) OUTPUT INSERTED.DepartmentID AS departmentId VALUES (@0)`,
+            [secDept],
+          )) as Record<string, unknown>[];
+          deptId = readNumber(insertRows[0], 'departmentId');
+        }
+      }
+
+      // 2. Include ONLY the new Secondary Department in ContactAssignment (replace previous secondary department assignments)
+      if (contactAssignmentId) {
+        const caRows = (await this.dataSource.query(
+          `SELECT TOP 1 CompanyID AS companyId, RoleID AS roleId, DepartmentID AS primaryDeptId
+           FROM dbo.ContactAssignment
+           WHERE ContactAssignmentID = @0`,
+          [contactAssignmentId],
+        )) as Record<string, unknown>[];
+        if (caRows.length > 0) {
+          const companyId = readNumber(caRows[0], 'companyId');
+          const roleId = readNumber(caRows[0], 'roleId') ?? 0;
+          const primaryDeptId = readNumber(caRows[0], 'primaryDeptId');
+
+          if (companyId) {
+            // Find all other assignments for this contact/company except the primary assignment
+            const otherCas = (await this.dataSource.query(
+              `SELECT ContactAssignmentID AS id, DepartmentID AS deptId
+               FROM dbo.ContactAssignment
+               WHERE ContactID = @0 AND CompanyID = @1 AND ContactAssignmentID <> @2`,
+              [contactId, companyId, contactAssignmentId],
+            )) as Record<string, unknown>[];
+
+            // If secondary department is provided and different from primary
+            if (deptId != null && deptId !== primaryDeptId) {
+              const alreadyHasTarget = otherCas.some(
+                (ca) => readNumber(ca, 'deptId') === deptId,
+              );
+
+              // Remove obsolete other assignments that are not the target secondary department
+              for (const ca of otherCas) {
+                const caId = readNumber(ca, 'id');
+                const caDeptId = readNumber(ca, 'deptId');
+                if (caId && caDeptId !== deptId) {
+                  await this.dataSource.query(
+                    `DELETE FROM dbo.EmployeeComputer WHERE ContactAssignmentID = @0`,
+                    [caId],
+                  );
+                  await this.dataSource.query(
+                    `DELETE FROM dbo.EmployeeWorkLocation WHERE ContactAssignmentID = @0`,
+                    [caId],
+                  );
+                  await this.dataSource.query(
+                    `DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID = @0`,
+                    [caId],
+                  );
+                  await this.dataSource.query(
+                    `DELETE FROM dbo.ContactAssignment WHERE ContactAssignmentID = @0`,
+                    [caId],
+                  );
+                }
+              }
+
+              // Insert new secondary assignment if it wasn't already present
+              if (!alreadyHasTarget) {
+                await this.dataSource.query(
+                  `INSERT INTO dbo.ContactAssignment (ContactID, CompanyID, RoleID, DepartmentID, created_by, created_at)
+                   VALUES (@0, @1, @2, @3, @4, SYSUTCDATETIME())`,
+                  [contactId, companyId, roleId, deptId, 'WMS profile update'],
+                );
+              }
+            } else {
+              // Secondary department cleared or matches primary: remove any additional assignments
+              for (const ca of otherCas) {
+                const caId = readNumber(ca, 'id');
+                if (caId) {
+                  await this.dataSource.query(
+                    `DELETE FROM dbo.EmployeeComputer WHERE ContactAssignmentID = @0`,
+                    [caId],
+                  );
+                  await this.dataSource.query(
+                    `DELETE FROM dbo.EmployeeWorkLocation WHERE ContactAssignmentID = @0`,
+                    [caId],
+                  );
+                  await this.dataSource.query(
+                    `DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID = @0`,
+                    [caId],
+                  );
+                  await this.dataSource.query(
+                    `DELETE FROM dbo.ContactAssignment WHERE ContactAssignmentID = @0`,
+                    [caId],
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
     // 3. Update Home Address
     if (dto.homeAddress) {
       await this.upsertHomeAddress(contactId, dto.homeAddress);
@@ -775,13 +919,15 @@ export class SelfProfileService {
     };
   }
 
-  /** Employees can only edit: phones, workstation, desk phone extension. */
+  /** Employees can only edit: phones, workstation, desk phone extension, secondary department. */
   private stripAdminOnlyFields(dto: UpdateMyProfileDto): UpdateMyProfileDto {
     return {
       cellPhone: dto.cellPhone,
       workPhone: dto.workPhone,
       workstation: dto.workstation,
       deskPhoneExtensionId: dto.deskPhoneExtensionId,
+      secondaryDepartment: dto.secondaryDepartment,
+      department2: dto.department2,
     };
   }
 

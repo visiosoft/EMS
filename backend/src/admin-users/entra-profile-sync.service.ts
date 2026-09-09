@@ -896,6 +896,16 @@ export class EntraProfileSyncService {
         );
       }
 
+      // Secondary Department (from Department2 CSA)
+      const secDeptName = (entra.emsAttributes.Department2 ?? '').trim();
+      const secDeptId = secDeptName ? await this.findOrCreateDepartment(manager, secDeptName) : null;
+      await this.ensureSecondaryContactAssignment(
+        manager,
+        contact.contactId,
+        contact.contactAssignmentId,
+        secDeptId,
+      );
+
       // 7. Role
       await this.syncRoleFromEntra(manager, contact.contactAssignmentId, entra.emsAttributes.Role ?? null);
     });
@@ -1114,6 +1124,18 @@ export class EntraProfileSyncService {
         await manager.query(
           `UPDATE dbo.ContactAssignment SET DepartmentID = @0 WHERE ContactAssignmentID = @1`,
           [deptId, contact.contactAssignmentId],
+        );
+      }
+
+      // Secondary Department
+      if (hasProfile && selectedFields.has('department2')) {
+        const secDeptName = (entra.emsAttributes.Department2 ?? '').trim();
+        const secDeptId = secDeptName ? await this.findOrCreateDepartment(manager, secDeptName) : null;
+        await this.ensureSecondaryContactAssignment(
+          manager,
+          contact.contactId,
+          contact.contactAssignmentId,
+          secDeptId,
         );
       }
 
@@ -2215,6 +2237,10 @@ export class EntraProfileSyncService {
     // Workstation
     addChange(changes, 'Workstation', 'Work Station', entra.emsAttributes.Workstation ?? '', readString(current.profileRow, 'Workstation'));
 
+    // Secondary Department (Department2 in CSA)
+    const emsDepartment2 = readString(current.profileRow, 'Department2');
+    addChange(changes, 'Department2', 'Secondary Department (CSA)', entra.emsAttributes.Department2 ?? '', emsDepartment2);
+
     // Equipment CSAs (composite format: "MAC - Brand Model" / "ServiceTag - PCName")
     const emsPhoneMacComposite = composeDeskPhoneMAC(current.equipment);
     addChange(changes, 'DeskPhoneMAC', 'Desk Phone MAC Address', entra.emsAttributes.DeskPhoneMAC ?? '', emsPhoneMacComposite);
@@ -2302,6 +2328,12 @@ export class EntraProfileSyncService {
     const emsWorkstation = readString(current.profileRow, 'Workstation');
     if (emsWorkstation !== (entra.emsAttributes.Workstation ?? '')) csaPayload.Workstation = emsWorkstation || null;
 
+    // Secondary Department (Department2 in CSA)
+    const emsDept2 = readString(current.profileRow, 'Department2');
+    if (emsDept2 !== (entra.emsAttributes.Department2 ?? '')) {
+      csaPayload.Department2 = emsDept2 || null;
+    }
+
     // Equipment CSAs (composite format: "MAC - Brand Model" / "ServiceTag - PCName")
     const { deskPhoneMac, deskPhoneBrand, deskPhoneModel, pcServiceTag, pcWindowsName } = current.equipment;
     const phoneMacComposite = composeDeskPhoneMAC(current.equipment);
@@ -2323,14 +2355,79 @@ export class EntraProfileSyncService {
 
     // 4. PATCH CSA attributes separately (works for both members and guests)
     if (Object.keys(csaPayload).length > 0) {
-      await this.graphPatch(accessToken, `${GRAPH_BASE_URL}/users/${userId}`, {
-        customSecurityAttributes: {
-          [EMS_ATTRIBUTE_SET]: {
-            '@odata.type': `#Microsoft.DirectoryServices.CustomSecurityAttributeValue`,
-            ...this.normalizeEmsCsaPayload(csaPayload),
+      const normalizedPayload = this.normalizeEmsCsaPayload(csaPayload);
+      try {
+        await this.graphPatch(accessToken, `${GRAPH_BASE_URL}/users/${userId}`, {
+          customSecurityAttributes: {
+            [EMS_ATTRIBUTE_SET]: {
+              '@odata.type': `#Microsoft.DirectoryServices.CustomSecurityAttributeValue`,
+              ...normalizedPayload,
+            },
           },
-        },
-      });
+        });
+      } catch (batchError) {
+        console.warn(
+          `[EntraSync] Batch CSA PATCH failed for user ${userId}, falling back to per-attribute updates: ${
+            batchError instanceof Error ? batchError.message : String(batchError)
+          }`,
+        );
+        let updatedAny = false;
+        const csaErrors: string[] = [];
+
+        for (const [attrName, attrValue] of Object.entries(normalizedPayload)) {
+          try {
+            await this.graphPatch(accessToken, `${GRAPH_BASE_URL}/users/${userId}`, {
+              customSecurityAttributes: {
+                [EMS_ATTRIBUTE_SET]: {
+                  '@odata.type': `#Microsoft.DirectoryServices.CustomSecurityAttributeValue`,
+                  [attrName]: attrValue,
+                },
+              },
+            });
+            updatedAny = true;
+          } catch (singleError) {
+            const msg =
+              singleError instanceof Error ? singleError.message : String(singleError);
+            console.error(
+              `[EntraSync] Failed to update CSA attribute ${attrName} for user ${userId}: ${msg}`,
+            );
+
+            // If it's DeskPhoneMAC and had a suffix, try pushing just the MAC as fallback
+            if (
+              attrName === 'DeskPhoneMAC' &&
+              typeof attrValue === 'string' &&
+              attrValue.includes(' - ')
+            ) {
+              const macOnly = attrValue.split(' - ')[0].trim();
+              try {
+                await this.graphPatch(
+                  accessToken,
+                  `${GRAPH_BASE_URL}/users/${userId}`,
+                  {
+                    customSecurityAttributes: {
+                      [EMS_ATTRIBUTE_SET]: {
+                        '@odata.type': `#Microsoft.DirectoryServices.CustomSecurityAttributeValue`,
+                        DeskPhoneMAC: macOnly,
+                      },
+                    },
+                  },
+                );
+                updatedAny = true;
+                continue;
+              } catch {
+                // Ignore fallback error and record original
+              }
+            }
+            csaErrors.push(`${attrName}: ${msg}`);
+          }
+        }
+
+        if (!updatedAny && csaErrors.length > 0) {
+          throw new Error(
+            `All Entra Custom Security Attribute updates failed: ${csaErrors.join('; ')}`,
+          );
+        }
+      }
     }
 
     if (nativePatchFailure) {
@@ -2572,6 +2669,98 @@ export class EntraProfileSyncService {
       [trimmed, trimmed.slice(0, 1024)],
     );
     return (result as Record<string, unknown>[])?.[0]?.LinkID as number;
+  }
+
+  private async ensureSecondaryContactAssignment(
+    manager: EntityManager,
+    contactId: number,
+    primaryContactAssignmentId: number,
+    secondaryDepartmentId: number | null,
+  ): Promise<void> {
+    const primaryCa = (await manager.query(
+      `SELECT TOP 1 CompanyID AS companyId, RoleID AS roleId, DepartmentID AS primaryDeptId
+       FROM dbo.ContactAssignment
+       WHERE ContactAssignmentID = @0`,
+      [primaryContactAssignmentId],
+    )) as Record<string, unknown>[];
+    if (!primaryCa?.length) return;
+    const companyId = readNumber(primaryCa[0], 'companyId');
+    const roleId = readNumber(primaryCa[0], 'roleId') ?? 0;
+    const primaryDeptId = readNumber(primaryCa[0], 'primaryDeptId');
+    if (!companyId) return;
+
+    // Find all other assignments for this contact/company except the primary assignment
+    const otherCas = (await manager.query(
+      `SELECT ContactAssignmentID AS id, DepartmentID AS deptId
+       FROM dbo.ContactAssignment
+       WHERE ContactID = @0 AND CompanyID = @1 AND ContactAssignmentID <> @2`,
+      [contactId, companyId, primaryContactAssignmentId],
+    )) as Record<string, unknown>[];
+
+    if (
+      secondaryDepartmentId != null &&
+      secondaryDepartmentId > 0 &&
+      secondaryDepartmentId !== primaryDeptId
+    ) {
+      const alreadyHasTarget = otherCas.some(
+        (ca) => readNumber(ca, 'deptId') === secondaryDepartmentId,
+      );
+
+      // Clean up obsolete secondary assignments
+      for (const ca of otherCas) {
+        const caId = readNumber(ca, 'id');
+        const caDeptId = readNumber(ca, 'deptId');
+        if (caId && caDeptId !== secondaryDepartmentId) {
+          await manager.query(
+            `DELETE FROM dbo.EmployeeComputer WHERE ContactAssignmentID = @0`,
+            [caId],
+          );
+          await manager.query(
+            `DELETE FROM dbo.EmployeeWorkLocation WHERE ContactAssignmentID = @0`,
+            [caId],
+          );
+          await manager.query(
+            `DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID = @0`,
+            [caId],
+          );
+          await manager.query(
+            `DELETE FROM dbo.ContactAssignment WHERE ContactAssignmentID = @0`,
+            [caId],
+          );
+        }
+      }
+
+      if (!alreadyHasTarget) {
+        await manager.query(
+          `INSERT INTO dbo.ContactAssignment (ContactID, CompanyID, RoleID, DepartmentID, created_by, created_at)
+           VALUES (@0, @1, @2, @3, @4, SYSUTCDATETIME())`,
+          [contactId, companyId, roleId, secondaryDepartmentId, 'Entra profile sync'],
+        );
+      }
+    } else {
+      // Secondary department cleared or matches primary: remove all non-primary assignments
+      for (const ca of otherCas) {
+        const caId = readNumber(ca, 'id');
+        if (caId) {
+          await manager.query(
+            `DELETE FROM dbo.EmployeeComputer WHERE ContactAssignmentID = @0`,
+            [caId],
+          );
+          await manager.query(
+            `DELETE FROM dbo.EmployeeWorkLocation WHERE ContactAssignmentID = @0`,
+            [caId],
+          );
+          await manager.query(
+            `DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID = @0`,
+            [caId],
+          );
+          await manager.query(
+            `DELETE FROM dbo.ContactAssignment WHERE ContactAssignmentID = @0`,
+            [caId],
+          );
+        }
+      }
+    }
   }
 
   private async findOrCreateDepartment(
@@ -2859,15 +3048,39 @@ function parseServiceTagName(value: string | null | undefined): string {
 
 /** Compose "MAC - Brand Model" for the DeskPhoneMAC CSA */
 function composeDeskPhoneMAC(eq: EquipmentData): string {
-  if (!eq.deskPhoneMac) return '';
-  const suffix = [eq.deskPhoneBrand, eq.deskPhoneModel].filter(Boolean).join(' ');
-  return suffix ? `${eq.deskPhoneMac} - ${suffix}` : eq.deskPhoneMac;
+  const mac = (eq.deskPhoneMac ?? '').trim();
+  if (
+    !mac ||
+    mac === '?' ||
+    mac === '-' ||
+    mac.toLowerCase() === 'none' ||
+    mac.toLowerCase() === 'unknown'
+  ) {
+    return '';
+  }
+  const brand = (eq.deskPhoneBrand ?? '').trim();
+  const model = (eq.deskPhoneModel ?? '').trim();
+  const parts = [brand, model.toLowerCase() === brand.toLowerCase() ? '' : model].filter(
+    Boolean,
+  );
+  const suffix = parts.join(' ').trim();
+  return suffix ? `${mac} - ${suffix}` : mac;
 }
 
 /** Compose "ServiceTag - PCName" for the PCServiceTag CSA */
 function composePCServiceTag(eq: EquipmentData): string {
-  if (!eq.pcServiceTag) return '';
-  return eq.pcWindowsName ? `${eq.pcServiceTag} - ${eq.pcWindowsName}` : eq.pcServiceTag;
+  const tag = (eq.pcServiceTag ?? '').trim();
+  if (
+    !tag ||
+    tag === '?' ||
+    tag === '-' ||
+    tag.toLowerCase() === 'none' ||
+    tag.toLowerCase() === 'unknown'
+  ) {
+    return '';
+  }
+  const winName = (eq.pcWindowsName ?? '').trim();
+  return winName ? `${tag} - ${winName}` : tag;
 }
 
 function normalizeDate(value: string | null | undefined): string {

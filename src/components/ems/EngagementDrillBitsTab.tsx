@@ -473,7 +473,7 @@ function EditablePerformanceRow({
               )}
             </div>
           </div>
-          <div className="grid grid-cols-[1fr_1fr_auto] gap-3 items-end rounded-md bg-surface/80 border border-border/50 px-3 py-2">
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-start rounded-md bg-surface/80 border border-border/50 px-3 py-2">
             <FormField
               label="Sellable Capacity (this performance)"
               error={sellCapError}
@@ -495,7 +495,10 @@ function EditablePerformanceRow({
                 placeholder="e.g. 2000"
               />
             </FormField>
-            <FormField label="Gross Potential Revenue (this performance)">
+            <FormField
+              label="Gross Potential Revenue (this performance)"
+              badge={<span className="text-[11px] font-normal opacity-0 select-none" aria-hidden>—</span>}
+            >
               <input
                 type="number"
                 min={0}
@@ -507,20 +510,22 @@ function EditablePerformanceRow({
                 placeholder="$"
               />
             </FormField>
-            <Button
-              type="button"
-              size="sm"
-              className="bg-ems-accent text-white hover:opacity-90 mb-0.5"
-              onClick={() => saveCapacityMut.mutate()}
-              disabled={saveCapacityMut.isPending || !capacityDirty || !!sellCapError}
-            >
-              {saveCapacityMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
-            </Button>
+            <div className="pt-6 sm:self-start">
+              <Button
+                type="button"
+                size="sm"
+                className="bg-ems-accent text-white hover:opacity-90 h-9"
+                onClick={() => saveCapacityMut.mutate()}
+                disabled={saveCapacityMut.isPending || !capacityDirty || !!sellCapError}
+              >
+                {saveCapacityMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+              </Button>
+            </div>
           </div>
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
             <FormField label="Date">
               <input type="date" className={inputCls} value={dateVal} onChange={(e) => setDateVal(e.target.value)} disabled={updateMut.isPending} />
             </FormField>
@@ -537,7 +542,7 @@ function EditablePerformanceRow({
               />
             </FormField>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
             <FormField
               label="Sellable Capacity"
               error={sellCapError}
@@ -549,7 +554,10 @@ function EditablePerformanceRow({
             >
               <input type="number" min={0} max={capacityLimit ?? undefined} step={1} className={inputCls} value={sellCap} onChange={(e) => setSellCap(e.target.value)} disabled={updateMut.isPending} placeholder="e.g. 2000" />
             </FormField>
-            <FormField label="Gross Potential Revenue">
+            <FormField
+              label="Gross Potential Revenue"
+              badge={<span className="text-[11px] font-normal opacity-0 select-none" aria-hidden>—</span>}
+            >
               <input type="number" min={0} step={0.01} className={inputCls} value={grossPot} onChange={(e) => setGrossPot(e.target.value)} disabled={updateMut.isPending} placeholder="$" />
             </FormField>
           </div>
