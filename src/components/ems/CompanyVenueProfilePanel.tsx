@@ -5,6 +5,7 @@ import { ContactPhoneRow } from './ContactPhoneRow';
 import { FormField } from './Primitives';
 import { Select2, type Select2Option } from './Select2';
 import { companyToSelect2Options } from './companySelectOptions';
+import { SystemLinkField } from './SystemLinkField';
 import { DEFAULT_PHONE_COUNTRY } from '@/lib/contactPhoneOptions';
 import {
   parsePhoneFieldValue,
@@ -295,22 +296,24 @@ function nonResidentWireSignature(args: {
   taxRate: string;
   dma: string;
   agency: string;
-  linkName: string;
+  formName: string;
   linkUrl: string;
-  mail: string;
   iae: string;
+  iaeName: string;
   artist: string;
+  artistName: string;
 }): string {
   return JSON.stringify({
     id: String(args.id ?? '').trim(),
     taxRate: String(args.taxRate ?? '').trim(),
     dma: String(args.dma ?? '').replace(/\D/g, ''),
     agency: String(args.agency ?? '').replace(/\D/g, ''),
-    linkName: String(args.linkName ?? '').trim(),
+    formName: String(args.formName ?? '').trim(),
     linkUrl: String(args.linkUrl ?? '').trim(),
-    mail: String(args.mail ?? '').trim(),
     iae: String(args.iae ?? '').trim(),
+    iaeName: String(args.iaeName ?? '').trim(),
     artist: String(args.artist ?? '').trim(),
+    artistName: String(args.artistName ?? '').trim(),
   });
 }
 
@@ -600,9 +603,10 @@ export function CompanyVenueProfilePanel({
     useState<string>('');
   const [withholdingLinkUrl, setWithholdingLinkUrl] = useState('');
   const [withholdingLinkName, setWithholdingLinkName] = useState('');
-  const [withholdingMailingAddress, setWithholdingMailingAddress] = useState('');
   const [iaeWaiverUrl, setIaeWaiverUrl] = useState('');
+  const [iaeWaiverName, setIaeWaiverName] = useState('');
   const [artistWaiverUrl, setArtistWaiverUrl] = useState('');
+  const [artistWaiverName, setArtistWaiverName] = useState('');
   const [withholdingLinkId, setWithholdingLinkId] = useState<number | null>(null);
   const [iaeWaiverLinkId, setIaeWaiverLinkId] = useState<number | null>(null);
   const [artistWaiverLinkId, setArtistWaiverLinkId] = useState<number | null>(null);
@@ -799,24 +803,26 @@ export function CompanyVenueProfilePanel({
       );
       setWithholdingLinkId(w.withholdingLink?.linkId ?? null);
       setWithholdingLinkUrl(w.withholdingLink?.linkUrl ?? '');
-      setWithholdingLinkName(w.withholdingLink?.linkName ?? '');
-      setWithholdingMailingAddress(w.withholdingLink?.linkPath ?? '');
+      setWithholdingLinkName(w.withholdingLink?.linkName ?? 'Name of Form');
       setIaeWaiverLinkId(w.iaeWaiverInstructions?.linkId ?? null);
       setIaeWaiverUrl(w.iaeWaiverInstructions?.linkUrl ?? '');
+      setIaeWaiverName(w.iaeWaiverInstructions?.linkName ?? 'IAE Waiver Instructions');
       setArtistWaiverLinkId(w.artistWaiverInstructions?.linkId ?? null);
       setArtistWaiverUrl(w.artistWaiverInstructions?.linkUrl ?? '');
+      setArtistWaiverName(w.artistWaiverInstructions?.linkName ?? 'Artist Waiver Instructions');
     } else {
       setWithholdingTaxRate('');
       setWithholdingDmaId('');
       setWithholdingTaxAgencyCompanyId('');
       setWithholdingLinkId(null);
       setWithholdingLinkUrl('');
-      setWithholdingLinkName('');
-      setWithholdingMailingAddress('');
+      setWithholdingLinkName('Name of Form');
       setIaeWaiverLinkId(null);
       setIaeWaiverUrl('');
+      setIaeWaiverName('IAE Waiver Instructions');
       setArtistWaiverLinkId(null);
       setArtistWaiverUrl('');
+      setArtistWaiverName('Artist Waiver Instructions');
     }
   }, [extendedVenueDataEnabled, detailsQ.data, taxes]);
 
@@ -914,22 +920,24 @@ export function CompanyVenueProfilePanel({
               taxRate: w.withholdingTaxRate ?? '',
               dma: w.dmaid != null ? String(w.dmaid) : '',
               agency: w.taxAgencyId != null ? String(w.taxAgencyId) : '',
-              linkName: w.withholdingLink?.linkName ?? '',
+              formName: w.withholdingLink?.linkName ?? 'Name of Form',
               linkUrl: w.withholdingLink?.linkUrl ?? '',
-              mail: w.withholdingLink?.linkPath ?? '',
               iae: w.iaeWaiverInstructions?.linkUrl ?? '',
+              iaeName: w.iaeWaiverInstructions?.linkName ?? 'IAE Waiver Instructions',
               artist: w.artistWaiverInstructions?.linkUrl ?? '',
+              artistName: w.artistWaiverInstructions?.linkName ?? 'Artist Waiver Instructions',
             }
           : {
               id: effNrwId,
               taxRate: '',
               dma: '',
               agency: '',
-              linkName: '',
+              formName: 'Name of Form',
               linkUrl: '',
-              mail: '',
               iae: '',
+              iaeName: 'IAE Waiver Instructions',
               artist: '',
+              artistName: 'Artist Waiver Instructions',
             },
       ),
     };
@@ -1126,11 +1134,12 @@ export function CompanyVenueProfilePanel({
         taxRate: withholdingTaxRate,
         dma: withholdingDmaId,
         agency: withholdingTaxAgencyCompanyId,
-        linkName: withholdingLinkName,
+        formName: withholdingLinkName,
         linkUrl: withholdingLinkUrl,
-        mail: withholdingMailingAddress,
         iae: iaeWaiverUrl,
+        iaeName: iaeWaiverName,
         artist: artistWaiverUrl,
+        artistName: artistWaiverName,
       }) !== extensionsSectionBaseline.nrw,
     [
       extensionsSectionBaseline,
@@ -1140,9 +1149,10 @@ export function CompanyVenueProfilePanel({
       withholdingTaxAgencyCompanyId,
       withholdingLinkName,
       withholdingLinkUrl,
-      withholdingMailingAddress,
       iaeWaiverUrl,
+      iaeWaiverName,
       artistWaiverUrl,
+      artistWaiverName,
     ],
   );
 
@@ -1249,13 +1259,13 @@ export function CompanyVenueProfilePanel({
     dmaid: parseOptPositiveInt(withholdingDmaId),
     taxAgencyId: parseOptPositiveInt(withholdingTaxAgencyCompanyId),
     withholdingLink:
-      withholdingLinkUrl.trim() || withholdingLinkName.trim() || withholdingMailingAddress.trim()
+      withholdingLinkUrl.trim() || withholdingLinkName.trim()
         ? {
             linkId: withholdingLinkId,
             linkType: 'URL' as const,
             linkUrl: withholdingLinkUrl,
             linkName: withholdingLinkName,
-            linkPath: withholdingMailingAddress,
+        linkPath: '',
           }
         : null,
     iaeWaiverInstructions: iaeWaiverUrl.trim()
@@ -1263,7 +1273,7 @@ export function CompanyVenueProfilePanel({
           linkId: iaeWaiverLinkId,
           linkType: 'URL' as const,
           linkUrl: iaeWaiverUrl,
-          linkName: '',
+          linkName: iaeWaiverName,
           linkPath: '',
         }
       : null,
@@ -1272,7 +1282,7 @@ export function CompanyVenueProfilePanel({
           linkId: artistWaiverLinkId,
           linkType: 'URL' as const,
           linkUrl: artistWaiverUrl,
-          linkName: '',
+          linkName: artistWaiverName,
           linkPath: '',
         }
       : null,
@@ -1515,9 +1525,7 @@ export function CompanyVenueProfilePanel({
       withholdingTaxRate.trim() ||
       withholdingDmaId.trim() ||
       withholdingTaxAgencyCompanyId.trim() ||
-      withholdingLinkName.trim() ||
       withholdingLinkUrl.trim() ||
-      withholdingMailingAddress.trim() ||
       iaeWaiverUrl.trim() ||
       artistWaiverUrl.trim();
     const wid = parseOptPositiveInt(nonResidentWithholdingId);
@@ -2461,22 +2469,8 @@ export function CompanyVenueProfilePanel({
               <div className="grid grid-cols-1 sm:grid-cols-[10rem_1fr] sm:items-start gap-2 sm:gap-4">
                 <div className="text-sm text-text-primary sm:text-right sm:pr-1 sm:pt-2.5">Name of Form</div>
                 <div className="space-y-1.5">
-                  <input
-                    className={inputCls}
-                    value={withholdingLinkName}
-                    onChange={(e) => setWithholdingLinkName(e.target.value)}
-                    placeholder="Form or document name"
-                    maxLength={255}
-                    aria-label="Name of form"
-                  />
-                  <input
-                    className={inputCls}
-                    value={withholdingLinkUrl}
-                    onChange={(e) => setWithholdingLinkUrl(e.target.value)}
-                    placeholder="https://..."
-                    maxLength={2048}
-                    aria-label="Form link"
-                  />
+                  <input className={inputCls} value={withholdingLinkName} onChange={(e) => setWithholdingLinkName(e.target.value)} placeholder="Link name" maxLength={255} aria-label="Name of form link name" />
+                  <SystemLinkField label="Name of Form" value={withholdingLinkUrl} onChange={setWithholdingLinkUrl} placeholder="https://..." hideLabel showLinkName={false} />
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-[10rem_1fr] sm:items-center gap-2 sm:gap-4">
@@ -2503,34 +2497,18 @@ export function CompanyVenueProfilePanel({
                 />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-[10rem_1fr] sm:items-center gap-2 sm:gap-4">
-                <div className="text-sm text-text-primary sm:text-right sm:pr-1">Mailing Address</div>
-                <input
-                  className={inputCls}
-                  value={withholdingMailingAddress}
-                  onChange={(e) => setWithholdingMailingAddress(e.target.value)}
-                  placeholder="Mailing address"
-                  maxLength={1024}
-                />
+                <div className="text-sm text-text-primary sm:text-right sm:pr-1 sm:self-start sm:pt-2.5">IAE Waiver Instructions</div>
+                <div className="space-y-1.5">
+                  <input className={inputCls} value={iaeWaiverName} onChange={(e) => setIaeWaiverName(e.target.value)} placeholder="Link name" maxLength={255} aria-label="IAE waiver instructions link name" />
+                  <SystemLinkField label="IAE Waiver Instructions" value={iaeWaiverUrl} onChange={setIaeWaiverUrl} hideLabel showLinkName={false} />
+                </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-[10rem_1fr] sm:items-center gap-2 sm:gap-4">
-                <div className="text-sm text-text-primary sm:text-right sm:pr-1">IAE Waiver Instructions</div>
-                <input
-                  className={inputCls}
-                  value={iaeWaiverUrl}
-                  onChange={(e) => setIaeWaiverUrl(e.target.value)}
-                  placeholder="https://..."
-                  maxLength={2048}
-                />
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-[10rem_1fr] sm:items-center gap-2 sm:gap-4">
-                <div className="text-sm text-text-primary sm:text-right sm:pr-1">Artist Waiver Instructions</div>
-                <input
-                  className={inputCls}
-                  value={artistWaiverUrl}
-                  onChange={(e) => setArtistWaiverUrl(e.target.value)}
-                  placeholder="https://..."
-                  maxLength={2048}
-                />
+                <div className="text-sm text-text-primary sm:text-right sm:pr-1 sm:self-start sm:pt-2.5">Artist Waiver Instructions</div>
+                <div className="space-y-1.5">
+                  <input className={inputCls} value={artistWaiverName} onChange={(e) => setArtistWaiverName(e.target.value)} placeholder="Link name" maxLength={255} aria-label="Artist waiver instructions link name" />
+                  <SystemLinkField label="Artist Waiver Instructions" value={artistWaiverUrl} onChange={setArtistWaiverUrl} hideLabel showLinkName={false} />
+                </div>
               </div>
             </div>
             <div className="flex flex-wrap justify-end pt-2 max-w-3xl">

@@ -10,6 +10,8 @@ interface ImportMetaEnv {
   readonly VITE_ENTRA_TENANT_ID?: string;
   readonly VITE_ENTRA_REDIRECT_URI?: string;
   readonly VITE_ENTRA_REDIRECT_PATH?: string;
+  readonly VITE_SP_TENANT_URL?: string;
+  readonly VITE_SP_SITE_URL?: string;
 }
 
 interface ImportMeta {
