@@ -1275,11 +1275,11 @@ function TravelCarServiceForm({
         <div className="space-y-2">
           <p className="text-xs font-medium text-text-secondary">Origin Address</p>
           <input type="text" className={cls} placeholder="Address Line 1" value={originLine1} onChange={(e) => setOriginLine1(e.target.value)} disabled={mutation.isPending} />
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2">
             <input type="text" className={cls} placeholder="City" value={originCity} onChange={(e) => setOriginCity(e.target.value)} disabled={mutation.isPending} />
             <input type="text" className={cls} placeholder="State/Province" value={originState} onChange={(e) => setOriginState(e.target.value)} disabled={mutation.isPending} />
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2">
             <input type="text" className={cls} placeholder="Postal Code" value={originPostal} onChange={(e) => setOriginPostal(e.target.value)} disabled={mutation.isPending} />
             <input type="text" className={cls} placeholder="Country" value={originCountry} onChange={(e) => setOriginCountry(e.target.value)} disabled={mutation.isPending} />
           </div>
@@ -1287,11 +1287,11 @@ function TravelCarServiceForm({
         <div className="space-y-2">
           <p className="text-xs font-medium text-text-secondary">Destination Address</p>
           <input type="text" className={cls} placeholder="Address Line 1" value={destLine1} onChange={(e) => setDestLine1(e.target.value)} disabled={mutation.isPending} />
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2">
             <input type="text" className={cls} placeholder="City" value={destCity} onChange={(e) => setDestCity(e.target.value)} disabled={mutation.isPending} />
             <input type="text" className={cls} placeholder="State/Province" value={destState} onChange={(e) => setDestState(e.target.value)} disabled={mutation.isPending} />
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2">
             <input type="text" className={cls} placeholder="Postal Code" value={destPostal} onChange={(e) => setDestPostal(e.target.value)} disabled={mutation.isPending} />
             <input type="text" className={cls} placeholder="Country" value={destCountry} onChange={(e) => setDestCountry(e.target.value)} disabled={mutation.isPending} />
           </div>
@@ -1456,7 +1456,7 @@ function AttractionTravelSection({
                         />
                       ) : (
                         <>
-                          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-text-secondary pt-2">
+                          <div className="grid grid-cols-1 min-[480px]:grid-cols-[minmax(90px,auto)_1fr] gap-x-4 gap-y-1 text-xs text-text-secondary pt-2">
                             <span className="text-text-muted">Booked by:</span><span>{t.hotel.bookedBy || '—'}</span>
                             <span className="text-text-muted">Hotel:</span><span>{t.hotel.hotelCompanyName || '—'}</span>
                             <span className="text-text-muted">Address:</span>
@@ -1502,7 +1502,7 @@ function AttractionTravelSection({
                         />
                       ) : (
                         <div key={cs.carServiceTravelId} className="space-y-2">
-                          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-text-secondary pt-2">
+                          <div className="grid grid-cols-1 min-[480px]:grid-cols-[minmax(90px,auto)_1fr] gap-x-4 gap-y-1 text-xs text-text-secondary pt-2">
                             <span className="text-text-muted">Booked by:</span><span>{cs.bookedBy || '—'}</span>
                             <span className="text-text-muted">Origin:</span><span>{cs.originAddressLabel || '—'}</span>
                             <span className="text-text-muted">Destination:</span><span>{cs.destinationAddressLabel || '—'}</span>
@@ -9133,9 +9133,9 @@ function EngagementMarketingPanel({
           ) : (
             <div className="space-y-1">
               {venueMarketingContacts.map((c, i) => (
-                <div key={i} className="flex items-center gap-2 text-sm">
-                  <span className="text-text-muted min-w-[220px]">{c.role}:</span>
-                  <span className="text-text-primary">{c.names}</span>
+                <div key={i} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm">
+                  <span className="text-text-muted sm:min-w-[220px]">{c.role}:</span>
+                  <span className="text-text-primary break-words">{c.names}</span>
                 </div>
               ))}
             </div>
@@ -9155,9 +9155,9 @@ function EngagementMarketingPanel({
           ) : (
             <div className="space-y-1">
               {tourMarketingContacts.map((c, i) => (
-                <div key={i} className="flex items-center gap-2 text-sm">
-                  <span className="text-text-muted min-w-[220px]">{c.role}:</span>
-                  <span className="text-text-primary">{c.names}</span>
+                <div key={i} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm">
+                  <span className="text-text-muted sm:min-w-[220px]">{c.role}:</span>
+                  <span className="text-text-primary break-words">{c.names}</span>
                 </div>
               ))}
             </div>
