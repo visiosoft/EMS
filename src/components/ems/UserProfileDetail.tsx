@@ -17,6 +17,7 @@ import { friendlyApiError } from '@/lib/friendlyApiError';
 import { getActiveAccount, getAccountEmail } from '@/auth/entra';
 import { INTERNAL_ROOT } from '@/routing/paths';
 import { SystemLinkField } from './SystemLinkField';
+import { extractLinkDisplayName } from '@/lib/linkDisplayName';
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -272,7 +273,7 @@ function ReadOnlyWithWmsLink({ label, value, source, contactId }: { label: strin
 }
 
 /** Editable link field — displays clickable URL with inline edit capability */
-function EditableLinkField({ label, value, onSave }: { label: string; value: string; onSave: (url: string) => void }) {
+function EditableLinkField({ label, value, onSave, saveInline = false }: { label: string; value: string; onSave: (url: string) => void; saveInline?: boolean }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   useEffect(() => { setDraft(value); }, [value]);
@@ -281,11 +282,13 @@ function EditableLinkField({ label, value, onSave }: { label: string; value: str
       {/* SystemLinkField renders its own label while editing — avoid showing it twice. */}
       {!editing && <label className="text-xs font-medium text-text-muted">{label}</label>}
       {editing ? (
-        <div className="space-y-2">
+        <div className={saveInline ? 'grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start' : 'space-y-2'}>
           <SystemLinkField label={label} value={draft} onChange={setDraft} />
           <button
-            className="rounded px-2 py-1.5 text-xs font-medium bg-ems-accent text-white hover:bg-ems-accent/90"
+            className={`inline-flex items-center justify-center rounded px-2 py-1.5 text-xs font-medium bg-ems-accent text-white hover:bg-ems-accent/90 ${saveInline ? 'h-[38px] w-[38px] self-start px-0 py-0 sm:mt-[21px]' : ''}`}
             onClick={() => { onSave(draft); setEditing(false); }}
+            title="Save work authorization link"
+            aria-label="Save work authorization link"
           >
             <Save className="h-3 w-3" />
           </button>
@@ -293,8 +296,8 @@ function EditableLinkField({ label, value, onSave }: { label: string; value: str
       ) : (
         <div className="flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-sm">
           {value ? (
-            <a href={value} target="_blank" rel="noopener noreferrer" className="text-ems-blue hover:underline truncate flex-1">
-              {value}
+            <a href={value} target="_blank" rel="noopener noreferrer" className="text-ems-blue hover:underline truncate flex-1" title={value}>
+              {extractLinkDisplayName(value)}
             </a>
           ) : (
             <span className="text-text-muted flex-1">—</span>
@@ -584,8 +587,14 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
         <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
           {isAdmin && <ReadOnlyField label="Access Level" value={data?.accessLevel || ''} source="admin" />}
           {isAdmin && <ReadOnlyField label="Work Authorization" value={data?.workAuthorization || ''} source="admin" />}
-          {isAdmin && <EditableLinkField label="Work Authorization Photos" value={data?.workAuthorizationLinkUrl || ''} onSave={saveWorkAuthLink} />}
-          <ReadOnlyWithWmsLink label="Workstation" value={data?.workstation || ''} source="admin" contactId={data?.contactId} />
+          {isAdmin && (
+            <div className="sm:col-span-2">
+              <EditableLinkField label="Work Authorization Photos" value={data?.workAuthorizationLinkUrl || ''} onSave={saveWorkAuthLink} saveInline />
+            </div>
+          )}
+          <div className="sm:col-span-2">
+            <ReadOnlyWithWmsLink label="Workstation" value={data?.workstation || ''} source="admin" contactId={data?.contactId} />
+          </div>
           <ReadOnlyField label="Start Date at IAE" value={startDate} source="admin" />
           {yearsOfService !== null ? (
             <ReadOnlyField label="Years of Service" value={yearsOfService} source="calculated" />

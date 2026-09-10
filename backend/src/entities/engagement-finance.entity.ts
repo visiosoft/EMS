@@ -146,6 +146,27 @@ export class EngagementFinances {
   })
   venueSettlementFileSharePointLink: string | null;
 
+  @Column({ name: 'AttractionContractSharePointLinkID', type: 'int', nullable: true })
+  attractionContractSharePointLinkId: number | null;
+
+  @Column({ name: 'FullyExecutedAttractionContractSharePointLinkID', type: 'int', nullable: true })
+  fullyExecutedAttractionContractSharePointLinkId: number | null;
+
+  @Column({ name: 'PartiallyExecutedAttractionContractSharePointLinkID', type: 'int', nullable: true })
+  partiallyExecutedAttractionContractSharePointLinkId: number | null;
+
+  @Column({ name: 'FinalAcceptedOfferLinkID', type: 'int', nullable: true })
+  finalAcceptedOfferLinkId: number | null;
+
+  @Column({ name: 'SettlementFileSharePointLinkID', type: 'int', nullable: true })
+  settlementFileSharePointLinkId: number | null;
+
+  @Column({ name: 'PartnerSettlementFileSharePointLinkID', type: 'int', nullable: true })
+  partnerSettlementFileSharePointLinkId: number | null;
+
+  @Column({ name: 'VenueSettlementFileSharePointLinkID', type: 'int', nullable: true })
+  venueSettlementFileSharePointLinkId: number | null;
+
   @Column({
     name: 'PartnerSettlementFileSharePointLink',
     type: 'nvarchar',

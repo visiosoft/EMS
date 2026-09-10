@@ -456,7 +456,7 @@ export function VenueMarketingPanel({ venueCompanyId, addToast }: Props) {
 
         {styleGuideEnabled && (
           <div className="space-y-3 pl-2 border-l-2 border-ems-accent/20">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
               <div>
                 <label className="block text-xs font-medium text-text-muted mb-1">Font</label>
                 <input className={inputCls} value={font} onChange={(e) => { setFont(e.target.value); markDirty(); }} disabled={saveMut.isPending} />
@@ -469,14 +469,14 @@ export function VenueMarketingPanel({ venueCompanyId, addToast }: Props) {
                 <label className="block text-xs font-medium text-text-muted mb-1">Accent Colors</label>
                 <input className={inputCls} value={accentColors} onChange={(e) => { setAccentColors(e.target.value); markDirty(); }} disabled={saveMut.isPending} />
               </div>
-              <SystemLinkField
-                label="Logo (Link)"
-                value={logoUrl}
-                onChange={(value) => { setLogoUrl(value); markDirty(); }}
-                disabled={saveMut.isPending}
-                accept=".jpg,.jpeg,.png,.webp"
-              />
             </div>
+            <SystemLinkField
+              label="Venue Marketing Logo"
+              value={logoUrl}
+              onChange={(value) => { setLogoUrl(value); markDirty(); }}
+              disabled={saveMut.isPending}
+              accept=".jpg,.jpeg,.png,.webp"
+            />
             <div>
               <label className="block text-xs font-medium text-text-muted mb-1">Notes</label>
               <textarea className={`${inputCls} min-h-[60px] resize-y`} value={styleGuideNotes} onChange={(e) => { setStyleGuideNotes(e.target.value); markDirty(); }} disabled={saveMut.isPending} />

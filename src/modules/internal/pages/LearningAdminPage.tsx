@@ -341,8 +341,7 @@ export function LearningAdminPage() {
   };
 
   const handleExitAdmin = () => {
-    if (window.opener || window.history.length === 1) window.close();
-    else window.location.href = "/internal";
+    navigate('learning-portal', { fromTitle: activeDept });
   };
 
   // ─── Render ─────────────────────────────────────────────────────────────

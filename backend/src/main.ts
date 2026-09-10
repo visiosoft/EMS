@@ -62,6 +62,9 @@ async function bootstrap() {
   });
   app.useStaticAssets(LINK_FILE_UPLOAD_DIR, {
     prefix: '/uploads/link-files/',
+    setHeaders: (response) => {
+      response.setHeader('Content-Disposition', 'inline');
+    },
   });
   app.enableCors();
   app.setGlobalPrefix('api');

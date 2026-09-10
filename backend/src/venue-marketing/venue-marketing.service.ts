@@ -367,7 +367,7 @@ export class VenueMarketingService {
   }
 
   // ── Helper: upsert logo in Link table ────────────────────────────────────
-  // Uses LinkName='VenueStyleGuideLogoUrl' + LinkPath=<styleGuideId> to identify the row.
+  // Uses the linked row first and falls back to the legacy name/path identifier.
   // Saves the resulting LinkID back to VenueStyleGuide.LogoLinkID.
 
   private async upsertLogoLink(
@@ -377,19 +377,23 @@ export class VenueMarketingService {
   ) {
     const trimmed = logoUrl?.trim() || null;
     const styleGuideIdStr = String(styleGuide.venueStyleGuideId);
+    const logoLinkName = 'Venue Marketing Logo';
 
-    const existingLink = await this.linkRepo.findOne({
-      where: { linkName: 'VenueStyleGuideLogoUrl', linkPath: styleGuideIdStr },
-    });
+    const existingLink = styleGuide.logoLinkId
+      ? await this.linkRepo.findOne({ where: { linkId: styleGuide.logoLinkId } })
+      : await this.linkRepo.findOne({
+          where: { linkName: 'VenueStyleGuideLogoUrl', linkPath: styleGuideIdStr },
+        });
 
     if (trimmed) {
       if (existingLink) {
         existingLink.linkUrl = trimmed;
+        existingLink.linkName = logoLinkName;
         const savedLink = await queryRunner.manager.save(existingLink);
         styleGuide.logoLinkId = savedLink.linkId;
       } else {
         const newLink = this.linkRepo.create({
-          linkName: 'VenueStyleGuideLogoUrl',
+          linkName: logoLinkName,
           linkType: 'URL',
           linkUrl: trimmed,
           linkPath: styleGuideIdStr,

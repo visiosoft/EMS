@@ -771,23 +771,15 @@ function VenueDetailPanel({
       <div className={sectionCls}>
         <span className={labelCls}>Venue Tech Pack</span>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Venue Tech Pack PDF">
-            <div className="flex items-center gap-1.5">
-              <input
-                type="text"
-                className={`${inputCls} flex-1`}
-                value={techRiderUrl}
-                onChange={(e) => setTechRiderUrl(e.target.value)}
-                placeholder="Paste tech pack PDF URL…"
-                disabled={saveTechPackMutation.isPending}
-              />
-              {techRiderUrl.trim() && isValidHttpOrHttpsUrl(techRiderUrl) && (
-                <a href={techRiderUrl.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open tech pack PDF">
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              )}
-            </div>
-          </FormField>
+          <div>
+            <SystemLinkField
+              label="Venue Tech Pack PDF"
+              value={techRiderUrl}
+              onChange={setTechRiderUrl}
+              disabled={saveTechPackMutation.isPending}
+              accept=".pdf,application/pdf"
+            />
+          </div>
           <FormField label="Venue Stage Dimensions">
             <input
               type="text"
@@ -6715,9 +6707,9 @@ function EngagementEventBusinessPanel({
               </div>
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
                 {fieldRow('Form to Attraction Link',
-                  <SystemLinkField label="Form to Attraction Link" value={withholdingFormToAttractionLink} onChange={() => undefined} disabled />)}
+                  <input className={inputCls} value={withholdingFormToAttractionLink} readOnly disabled />)}
                 {fieldRow('Form to Municipality Link',
-                  <SystemLinkField label="Form to Municipality Link" value={withholdingFormToMunicipalityLink} onChange={() => undefined} disabled />)}
+                  <input className={inputCls} value={withholdingFormToMunicipalityLink} readOnly disabled />)}
               </div>
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
                 {fieldRow('QuickBooks Number',

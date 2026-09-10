@@ -92,9 +92,9 @@ export function LinkOrUploadField({
       <label className="block text-xs font-medium text-text-secondary">
         {label}
       </label>
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr_auto] gap-2">
+      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto]">
         <div
-          className={inputCls + ' cursor-not-allowed bg-elevated/60 truncate min-w-0'}
+          className={inputCls + ' flex h-[38px] self-start items-center cursor-not-allowed bg-elevated/60 truncate min-w-0'}
           role="textbox"
           aria-readonly="true"
           aria-label="Display name (auto-filled)"
@@ -129,7 +129,7 @@ export function LinkOrUploadField({
           disabled={disabled || !!value.pendingFile}
           title={value.url ?? undefined}
         />
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex min-w-0 flex-wrap items-start gap-1 self-start shrink-0 sm:col-start-2 sm:col-span-1 lg:col-start-3 lg:col-span-1 lg:flex-nowrap">
           <input
             ref={fileRef}
             type="file"
@@ -148,7 +148,7 @@ export function LinkOrUploadField({
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={disabled}
-            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-2 text-xs text-text-secondary hover:text-text-primary hover:bg-elevated disabled:opacity-50"
+            className="inline-flex h-[38px] items-center gap-1 rounded-md border border-border px-2 py-2 text-xs text-text-secondary hover:text-text-primary hover:bg-elevated disabled:opacity-50"
             title="Upload file from your computer"
           >
             <Upload className="h-3.5 w-3.5" />
@@ -182,7 +182,7 @@ export function LinkOrUploadField({
                 }
               }}
               disabled={disabled || picking}
-              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-2 text-xs text-text-secondary hover:text-text-primary hover:bg-elevated disabled:opacity-50"
+              className="inline-flex h-[38px] items-center gap-1 rounded-md border border-border px-2 py-2 text-xs text-text-secondary hover:text-text-primary hover:bg-elevated disabled:opacity-50"
               title="Pick from SharePoint or OneDrive"
             >
               {picking ? (
@@ -197,7 +197,7 @@ export function LinkOrUploadField({
               type="button"
               onClick={onRemove}
               disabled={disabled}
-              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-2 text-xs text-text-muted hover:text-ems-coral hover:border-ems-coral/50 disabled:opacity-50"
+              className="inline-flex h-[38px] items-center gap-1 rounded-md border border-border px-2 py-2 text-xs text-text-muted hover:text-ems-coral hover:border-ems-coral/50 disabled:opacity-50"
               title="Remove"
             >
               <Trash2 className="h-3.5 w-3.5" />

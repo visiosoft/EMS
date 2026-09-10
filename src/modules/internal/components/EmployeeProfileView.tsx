@@ -26,6 +26,7 @@ import type {
   UpdateMyProfilePayload,
 } from "@/api/selfProfileApi";
 import { SystemLinkField } from "@/components/ems/SystemLinkField";
+import { extractLinkDisplayName } from "@/lib/linkDisplayName";
 import {
   updateMyProfile,
   updateEmployeeProfile,
@@ -100,7 +101,7 @@ function LinkField({ label, value }: { label: string; value: string }) {
     <div className="flex flex-col gap-1">
       <dt className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">{label}</dt>
       <dd className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm font-medium break-words">
-        <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{value}</a>
+        <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline" title={value}>{extractLinkDisplayName(value)}</a>
       </dd>
     </div>
   );
@@ -253,7 +254,7 @@ function SubGroup({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-type FieldItem = { label: string; value: string; kind?: "text" | "reveal"; admin?: boolean; link?: boolean; public?: boolean; tags?: string[] };
+type FieldItem = { label: string; value: string; kind?: "text" | "reveal"; admin?: boolean; link?: boolean; public?: boolean; tags?: string[]; fullRow?: boolean };
 
 /**
  * A titled card of label/value fields. When `limited` (a non-admin viewing someone
@@ -264,15 +265,17 @@ type FieldItem = { label: string; value: string; kind?: "text" | "reveal"; admin
 function FieldGrid({ items }: { items: FieldItem[] }) {
   return (
     <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
-      {items.map((item) =>
-        item.kind === "reveal" ? (
-          <RevealField key={item.label} label={item.label} value={item.value} />
-        ) : item.link && item.value !== "—" ? (
-          <LinkField key={item.label} label={item.label} value={item.value} />
-        ) : (
-          <Field key={item.label} label={item.label} value={item.value} tags={item.tags} />
-        ),
-      )}
+      {items.map((item) => (
+        <div key={item.label} className={item.fullRow ? "sm:col-span-2 lg:col-span-3" : undefined}>
+          {item.kind === "reveal" ? (
+            <RevealField label={item.label} value={item.value} />
+          ) : item.link && item.value !== "—" ? (
+            <LinkField label={item.label} value={item.value} />
+          ) : (
+            <Field label={item.label} value={item.value} tags={item.tags} />
+          )}
+        </div>
+      ))}
     </dl>
   );
 }
@@ -864,9 +867,9 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
     { label: "Access Level", value: textOrDash(profile.employment.accessLevel), admin: true },
     { label: "Work Email", value: textOrDash(profile.basics.email), public: true },
     { label: "Office", value: textOrDash(profile.employment.office) },
-    { label: "Workstation", value: textOrDash(profile.employment.workstation) },
     { label: "Work Authorization", value: textOrDash(profile.employment.workAuthorization), admin: true },
-    { label: "Work Authorization Photos", value: profile.employment.workAuthorizationLinkUrl || "—", link: true, admin: true },
+    { label: "Work Authorization Photos", value: profile.employment.workAuthorizationLinkUrl || "—", link: true, admin: true, fullRow: true },
+    { label: "Workstation", value: textOrDash(profile.employment.workstation), fullRow: true },
     { label: "Department", value: textOrDash(profile.basics.department), public: true },
     { label: "Secondary Department", value: textOrDash(profile.basics.department2), public: true },
     { label: "Department Rank", value: textOrDash(profile.employment.departmentRank) },
@@ -1217,7 +1220,13 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                 {canEditAdminFields && <Field label="Access Level" value={textOrDash(profile.employment.accessLevel)} />}
                 <Field label="Work Email" value={textOrDash(profile.basics.email)} />
                 <Field label="Office" value={textOrDash(profile.employment.office)} />
-                <div>
+                {canEditAdminFields && <Field label="Work Authorization" value={textOrDash(profile.employment.workAuthorization)} />}
+                {canEditAdminFields && (
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <SystemLinkField label="Work Authorization Photos" value={workAuthLinkUrl} onChange={setWorkAuthLinkUrl} accept=".jpg,.jpeg,.png,.webp,.pdf" />
+                </div>
+                )}
+                <div className="sm:col-span-2 lg:col-span-3">
                   <label className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
                     Workstation
                   </label>
@@ -1241,10 +1250,6 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                     ) : null}
                   </select>
                 </div>
-                {canEditAdminFields && <Field label="Work Authorization" value={textOrDash(profile.employment.workAuthorization)} />}
-                {canEditAdminFields && (
-                <SystemLinkField label="Work Authorization Photos" value={workAuthLinkUrl} onChange={setWorkAuthLinkUrl} accept=".jpg,.jpeg,.png,.webp,.pdf" />
-                )}
                 <Field
                   label="Department"
                   value={textOrDash(profile.basics.department)}
