@@ -17,6 +17,7 @@ import {
   IN_CONSIDERATION_OFFER_UPLOAD_DIR,
 } from './projects/offer-link-multer.config';
 import { getUploadRoot } from './common/upload-path';
+import { LINK_FILE_UPLOAD_DIR } from './common/link-file-multer.config';
 
 const DEFAULT_PORT = 3001;
 
@@ -30,6 +31,7 @@ async function bootstrap() {
   fs.mkdirSync(IN_CONSIDERATION_OFFER_UPLOAD_DIR, { recursive: true });
   fs.mkdirSync(certificateUploadDir, { recursive: true });
   fs.mkdirSync(TOUR_PROFILE_FILE_UPLOAD_DIR, { recursive: true });
+  fs.mkdirSync(LINK_FILE_UPLOAD_DIR, { recursive: true });
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     rawBody: true,
   });
@@ -58,6 +60,12 @@ async function bootstrap() {
   });
   app.useStaticAssets(TOUR_PROFILE_FILE_UPLOAD_DIR, {
     prefix: '/uploads/tour-profile-files/',
+  });
+  app.useStaticAssets(LINK_FILE_UPLOAD_DIR, {
+    prefix: '/uploads/link-files/',
+    setHeaders: (response) => {
+      response.setHeader('Content-Disposition', 'inline');
+    },
   });
   app.enableCors();
   app.setGlobalPrefix('api');

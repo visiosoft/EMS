@@ -153,6 +153,9 @@ export class EngagementController {
       withholdingTaxRate?: number | null;
       withholdingAgencyName?: string | null;
       completedWaiverUrl?: string | null;
+      iaeWaiverUrl?: string | null;
+      formToAttractionUrl?: string | null;
+      formToMunicipalityUrl?: string | null;
       iaeWaiverSubmissionDate?: string | null;
       iaeWaiverAppNumber?: string | null;
       tourWaiverUrl?: string | null;
