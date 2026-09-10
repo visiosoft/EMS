@@ -96,4 +96,7 @@ export class PerformanceContract {
 
   @Column({ name: 'OneDrivePdfUrl', type: 'nvarchar', length: 1000, nullable: true })
   oneDrivePdfUrl!: string | null;
+
+  @Column({ name: 'OneDrivePdfLinkID', type: 'int', nullable: true })
+  oneDrivePdfLinkId!: number | null;
 }

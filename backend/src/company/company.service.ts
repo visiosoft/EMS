@@ -1491,11 +1491,19 @@ export class CompanyService {
     const linkName = name || linkUrl.slice(0, 255) || 'Link';
 
     const id = draft.linkId ?? null;
+    const normalizedUrl = linkUrl.slice(0, 2048);
+    const existingByUrl = await em.findOne(Link, {
+      where: { linkUrl: normalizedUrl },
+    });
+    if (existingByUrl && (!id || existingByUrl.linkId !== id)) {
+      return existingByUrl.linkId;
+    }
+
     if (id && Number.isInteger(id) && id > 0) {
       const existing = await em.findOne(Link, { where: { linkId: id } });
       if (existing) {
         existing.linkType = linkType.slice(0, 50);
-        existing.linkUrl = linkUrl.slice(0, 2048);
+        existing.linkUrl = normalizedUrl;
         existing.linkPath = linkPath.slice(0, 1024);
         existing.linkName = linkName.slice(0, 255);
         await em.save(Link, existing);
@@ -1505,7 +1513,7 @@ export class CompanyService {
 
     const created = em.create(Link, {
       linkType: linkType.slice(0, 50),
-      linkUrl: linkUrl.slice(0, 2048),
+      linkUrl: normalizedUrl,
       linkPath: linkPath.slice(0, 1024),
       linkName: linkName.slice(0, 255),
     });

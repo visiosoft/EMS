@@ -50,8 +50,14 @@ export class NonResidentWithholding {
   @Column({ name: 'FormToAttractionURL', type: 'nvarchar', length: 1000, nullable: true })
   formToAttractionUrl: string | null;
 
+  @Column({ name: 'FormToAttractionLinkID', type: 'int', nullable: true })
+  formToAttractionLinkId: number | null;
+
   @Column({ name: 'FormToMunicipalityURL', type: 'nvarchar', length: 1000, nullable: true })
   formToMunicipalityUrl: string | null;
+
+  @Column({ name: 'FormToMunicipalityLinkID2', type: 'int', nullable: true })
+  formToMunicipalityLinkId2: number | null;
 
   @Column({ name: 'QuickBooksNumber', type: 'nvarchar', length: 100, nullable: true })
   quickBooksNumber: string | null;
@@ -65,6 +71,9 @@ export class NonResidentWithholding {
   @Column({ name: 'CompletedWaiverURL', type: 'nvarchar', length: 500, nullable: true })
   completedWaiverUrl: string | null;
 
+  @Column({ name: 'CompletedWaiverLinkID', type: 'int', nullable: true })
+  completedWaiverLinkId: number | null;
+
   @Column({ name: 'IAEWaiverSubmissionDate', type: 'date', nullable: true })
   iaeWaiverSubmissionDate: string | null;
 
@@ -74,8 +83,14 @@ export class NonResidentWithholding {
   @Column({ name: 'IAEWaiverURL', type: 'nvarchar', length: 500, nullable: true })
   iaeWaiverUrl: string | null;
 
+  @Column({ name: 'IAEWaiverLinkID', type: 'int', nullable: true })
+  iaeWaiverLinkId: number | null;
+
   @Column({ name: 'TourWaiverURL', type: 'nvarchar', length: 500, nullable: true })
   tourWaiverUrl: string | null;
+
+  @Column({ name: 'TourWaiverLinkID', type: 'int', nullable: true })
+  tourWaiverLinkId: number | null;
 
   @Column({ name: 'ExceptionsNotes', type: 'nvarchar', length: 'max' as string, nullable: true })
   exceptionsNotes: string | null;

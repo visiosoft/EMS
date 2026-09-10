@@ -10,6 +10,7 @@ import {
 } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { TICKETING_SYSTEM_OPTIONS } from '@/lib/ticketingSystemOptions';
+import { SystemLinkField } from './SystemLinkField';
 
 interface Props {
   company: Company;
@@ -145,15 +146,13 @@ export function CompanyTicketingPanel({
             />
           </div>
           <div className="md:col-span-2">
-            <span className={labelCls}>Venue website</span>
             <p className="text-[11px] text-amber-700 dark:text-amber-400 block mb-2">
               Not Stored In Database
             </p>
-            <input
-              className={inputCls}
-              type="url"
+            <SystemLinkField
+              label="Venue website"
               value={venueWebsite}
-              onChange={(e) => setVenueWebsite(e.target.value)}
+              onChange={setVenueWebsite}
               placeholder="https://example.com/tickets"
             />
           </div>

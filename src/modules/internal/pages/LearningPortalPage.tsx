@@ -22,6 +22,7 @@ import {
   type LearningPointTier,
 } from "@/api/learningApi";
 import { fetchMyProfile } from "@/api/myProfileApi";
+import { SystemLinkField } from "@/components/ems/SystemLinkField";
 
 export function LearningPortalPage() {
   const { navigate, viewData } = useInternalNavigation();
@@ -556,16 +557,12 @@ function SubmitCertificate({
               className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm font-semibold text-neutral-500 focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
             />
           </div>
-          <div>
-            <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-neutral-700">Certificate ID / Credential URL</label>
-            <input
-              type="text"
-              value={credentialUrl}
-              onChange={(e) => setCredentialUrl(e.target.value)}
-              placeholder="https://credential.net/..."
-              className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
-            />
-          </div>
+          <SystemLinkField
+            label="Certificate ID / Credential URL"
+            value={credentialUrl}
+            onChange={setCredentialUrl}
+            placeholder="https://credential.net/..."
+          />
         </div>
 
         <div>

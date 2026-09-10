@@ -965,12 +965,12 @@ export class EngagementService {
             SELECT 1 FROM sys.columns c
             INNER JOIN sys.tables t ON c.object_id = t.object_id
             INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = N'dbo' AND t.name = N'EngagementFinances' AND c.name = N'FinalAcceptedOfferLink'
+            WHERE s.name = N'dbo' AND t.name = N'EngagementFinances' AND c.name = N'FinalAcceptedOfferLinkID'
           ) AND EXISTS (
             SELECT 1 FROM sys.columns c
             INNER JOIN sys.tables t ON c.object_id = t.object_id
             INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = N'dbo' AND t.name = N'EngagementFinances' AND c.name = N'SettlementFileSharePointLink'
+            WHERE s.name = N'dbo' AND t.name = N'EngagementFinances' AND c.name = N'SettlementFileSharePointLinkID'
           )
         THEN 1 ELSE 0 END AS ok
       `,
@@ -998,8 +998,11 @@ export class EngagementService {
       const fid = Math.floor(Number(financeId));
       if (!Number.isFinite(fid) || fid < 1) return base;
       const r = await this.dataSource.query(
-        `SELECT [FinalAcceptedOfferLink] AS fl, [SettlementFileSharePointLink] AS sl
-         FROM dbo.EngagementFinances WHERE [FinanceID] = ${fid}`,
+        `SELECT fl.[LinkURL] AS fl, sl.[LinkURL] AS sl
+         FROM dbo.EngagementFinances ef
+         LEFT JOIN dbo.Link fl ON fl.[LinkID] = ef.[FinalAcceptedOfferLinkID]
+         LEFT JOIN dbo.Link sl ON sl.[LinkID] = ef.[SettlementFileSharePointLinkID]
+         WHERE ef.[FinanceID] = ${fid}`,
       );
       const lr = (r as Record<string, unknown>[])?.[0];
       if (!lr) return base;
@@ -1027,30 +1030,20 @@ export class EngagementService {
     const wantF = dto.finalAcceptedOfferLink !== undefined;
     const wantS = dto.settlementFileSharePointLink !== undefined;
     if (!wantF && !wantS) return;
-    const fSql =
-      wantF &&
-      (dto.finalAcceptedOfferLink == null ||
-        String(dto.finalAcceptedOfferLink).trim() === '')
-        ? 'NULL'
-        : wantF
-          ? this.escapeSqlNVarCharLiteral(
-              String(dto.finalAcceptedOfferLink).trim().slice(0, 500),
-            )
-          : null;
-    const sSql =
-      wantS &&
-      (dto.settlementFileSharePointLink == null ||
-        String(dto.settlementFileSharePointLink).trim() === '')
-        ? 'NULL'
-        : wantS
-          ? this.escapeSqlNVarCharLiteral(
-              String(dto.settlementFileSharePointLink).trim().slice(0, 500),
-            )
-          : null;
+    const current = await this.dataSource.query(
+      `SELECT [FinalAcceptedOfferLinkID] AS fId, [SettlementFileSharePointLinkID] AS sId
+       FROM dbo.EngagementFinances WHERE [FinanceID] = ${fid}`,
+    ) as Record<string, unknown>[];
+    const currentRow = current[0] ?? {};
+    const fId = wantF
+      ? await this.upsertUrlLink(dto.finalAcceptedOfferLink, Number(currentRow.fId) || null, 'Final accepted offer')
+      : null;
+    const sId = wantS
+      ? await this.upsertUrlLink(dto.settlementFileSharePointLink, Number(currentRow.sId) || null, 'Settlement file')
+      : null;
     const sets: string[] = [];
-    if (wantF && fSql != null) sets.push(`[FinalAcceptedOfferLink] = ${fSql}`);
-    if (wantS && sSql != null)
-      sets.push(`[SettlementFileSharePointLink] = ${sSql}`);
+    if (wantF) sets.push(`[FinalAcceptedOfferLinkID] = ${fId == null ? 'NULL' : fId}`);
+    if (wantS) sets.push(`[SettlementFileSharePointLinkID] = ${sId == null ? 'NULL' : sId}`);
     if (!sets.length) return;
     await this.dataSource.query(
       `UPDATE dbo.EngagementFinances SET ${sets.join(', ')} WHERE [FinanceID] = ${fid}`,
@@ -1527,9 +1520,9 @@ export class EngagementService {
     try {
       const r = await this.dataSource.query(`
         SELECT CASE WHEN
-          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'AttractionContractSharePointLink') AND
-          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'PartiallyExecutedAttractionContractSharePointLink') AND
-          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'FullyExecutedAttractionContractSharePointLink')
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'AttractionContractSharePointLinkID') AND
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'PartiallyExecutedAttractionContractSharePointLinkID') AND
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'FullyExecutedAttractionContractSharePointLinkID')
         THEN 1 ELSE 0 END AS ok
       `);
       const row0 = (r as Record<string, unknown>[])?.[0];
@@ -1569,9 +1562,14 @@ export class EngagementService {
       }
       if (hasLinkCols) {
         selects.push(
-          'ef.[AttractionContractSharePointLink] AS acLink',
-          'ef.[PartiallyExecutedAttractionContractSharePointLink] AS peLink',
-          'ef.[FullyExecutedAttractionContractSharePointLink] AS feLink',
+          'ac.[LinkURL] AS acLink',
+          'pe.[LinkURL] AS peLink',
+          'fe.[LinkURL] AS feLink',
+        );
+        joins.push(
+          'LEFT JOIN dbo.Link ac ON ac.[LinkID] = ef.[AttractionContractSharePointLinkID]',
+          'LEFT JOIN dbo.Link pe ON pe.[LinkID] = ef.[PartiallyExecutedAttractionContractSharePointLinkID]',
+          'LEFT JOIN dbo.Link fe ON fe.[LinkID] = ef.[FullyExecutedAttractionContractSharePointLinkID]',
         );
       }
       if (!selects.length) return base;
@@ -1626,17 +1624,24 @@ export class EngagementService {
       }
     }
     if (hasLinkCols) {
+      const current = await this.dataSource.query(
+        `SELECT [AttractionContractSharePointLinkID] AS acId,
+                [PartiallyExecutedAttractionContractSharePointLinkID] AS peId,
+                [FullyExecutedAttractionContractSharePointLinkID] AS feId
+         FROM dbo.EngagementFinances WHERE [FinanceID] = ${fid}`,
+      ) as Record<string, unknown>[];
+      const currentRow = current[0] ?? {};
       if (dto.attractionContractSharePointLink !== undefined) {
-        const v = dto.attractionContractSharePointLink;
-        sets.push(`[AttractionContractSharePointLink] = ${v == null || String(v).trim() === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(v).trim().slice(0, 2048))}`);
+        const id = await this.upsertUrlLink(dto.attractionContractSharePointLink, Number(currentRow.acId) || null, 'Attraction contract');
+        sets.push(`[AttractionContractSharePointLinkID] = ${id == null ? 'NULL' : id}`);
       }
       if (dto.partiallyExecutedAttractionContractSharePointLink !== undefined) {
-        const v = dto.partiallyExecutedAttractionContractSharePointLink;
-        sets.push(`[PartiallyExecutedAttractionContractSharePointLink] = ${v == null || String(v).trim() === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(v).trim().slice(0, 2048))}`);
+        const id = await this.upsertUrlLink(dto.partiallyExecutedAttractionContractSharePointLink, Number(currentRow.peId) || null, 'Partially executed attraction contract');
+        sets.push(`[PartiallyExecutedAttractionContractSharePointLinkID] = ${id == null ? 'NULL' : id}`);
       }
       if (dto.fullyExecutedAttractionContractSharePointLink !== undefined) {
-        const v = dto.fullyExecutedAttractionContractSharePointLink;
-        sets.push(`[FullyExecutedAttractionContractSharePointLink] = ${v == null || String(v).trim() === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(v).trim().slice(0, 2048))}`);
+        const id = await this.upsertUrlLink(dto.fullyExecutedAttractionContractSharePointLink, Number(currentRow.feId) || null, 'Fully executed attraction contract');
+        sets.push(`[FullyExecutedAttractionContractSharePointLinkID] = ${id == null ? 'NULL' : id}`);
       }
     }
     if (!sets.length) return;
@@ -1655,7 +1660,7 @@ export class EngagementService {
       const r = await this.dataSource.query(`
         SELECT CASE WHEN
           EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'EventBusinessManagerContactID') AND
-          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'VenueSettlementFileSharePointLink') AND
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'VenueSettlementFileSharePointLinkID') AND
           EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'CompensationRoyaltyAmount')
         THEN 1 ELSE 0 END AS ok
       `);
@@ -1686,8 +1691,8 @@ export class EngagementService {
           ebamc.FirstName + ' ' + ebamc.LastName        AS ebamName,
           ef.[VenueSettlementContactID]                 AS vscId,
           vscc.FirstName + ' ' + vscc.LastName          AS vscName,
-          ef.[VenueSettlementFileSharePointLink]        AS vsLink,
-          ef.[PartnerSettlementFileSharePointLink]      AS psLink,
+          vs.[LinkURL]                                  AS vsLink,
+          ps.[LinkURL]                                  AS psLink,
           ef.[SalesTaxRemittedBy]                       AS stRemittedBy,
           ef.[FexVenueAgreementLink]                    AS fexVenueLink,
           ef.[VenueDepositRequired]                     AS venueDeposit,
@@ -1710,6 +1715,8 @@ export class EngagementService {
         LEFT JOIN dbo.Contact ebmc  ON ebmc.ContactID  = ef.[EventBusinessManagerContactID]
         LEFT JOIN dbo.Contact ebamc ON ebamc.ContactID = ef.[EventBusinessAssistantManagerContactID]
         LEFT JOIN dbo.Contact vscc  ON vscc.ContactID  = ef.[VenueSettlementContactID]
+        LEFT JOIN dbo.Link vs ON vs.[LinkID] = ef.[VenueSettlementFileSharePointLinkID]
+        LEFT JOIN dbo.Link ps ON ps.[LinkID] = ef.[PartnerSettlementFileSharePointLinkID]
         WHERE ef.[FinanceID] = ${fid}
       `);
       const row0 = (r as Record<string, unknown>[])?.[0];
@@ -1799,12 +1806,10 @@ export class EngagementService {
     bitField('VenueDepositRequired', dto.venueDepositRequired);
     strField('WithholdingPayee', dto.withholdingPayee, 255);
     strField('WithholdingPaymentMethod', dto.withholdingPaymentMethod, 255);
-    strField('WithholdingFormToAttractionLink', dto.withholdingFormToAttractionLink, 2048);
-    strField('WithholdingFormToMunicipalityLink', dto.withholdingFormToMunicipalityLink, 2048);
+    // Form and waiver URLs belong to dbo.NonResidentWithholding and are persisted there.
     strField('WithholdingQuickbooksNumber', dto.withholdingQuickbooksNumber, 100);
     strField('WithholdingWaiver', dto.withholdingWaiver, 10);
-    strField('WithholdingCompletedWaiverLink', dto.withholdingCompletedWaiverLink, 2048);
-    strField('TourWaiverLink', dto.tourWaiverLink, 2048);
+    // Completed and tour waiver URLs belong to dbo.NonResidentWithholding.
     strField('WithholdingExceptions', dto.withholdingExceptions, 4000);
     numField('CompensationRoyaltyAmount', dto.compensationRoyaltyAmount);
     numField('CompensationOverageAmount', dto.compensationOverageAmount);
@@ -1812,10 +1817,15 @@ export class EngagementService {
     numField('CompensationDirectCharges', dto.compensationDirectCharges);
     numField('CompensationReimbursibles', dto.compensationReimbursibles);
     strField('FinanceJob', dto.financeJob, 255);
-    if (!sets.length) return;
-    await this.dataSource.query(
-      `UPDATE dbo.EngagementFinances SET ${sets.join(', ')} WHERE [FinanceID] = ${fid}`,
-    );
+    strField('WithholdingFormToAttractionLink', dto.withholdingFormToAttractionLink, 2048);
+    strField('WithholdingFormToMunicipalityLink', dto.withholdingFormToMunicipalityLink, 2048);
+    strField('WithholdingCompletedWaiverLink', dto.withholdingCompletedWaiverLink, 2048);
+    strField('TourWaiverLink', dto.tourWaiverLink, 2048);
+    if (sets.length) {
+      await this.dataSource.query(
+        `UPDATE dbo.EngagementFinances SET ${sets.join(', ')} WHERE [FinanceID] = ${fid}`,
+      );
+    }
     // Separately probed optional columns
     await this.tryPersistFinanceCustomer(fid, dto);
     await this.tryPersistFinancePromoterPartnerCompany(fid, dto);
@@ -2852,14 +2862,19 @@ export class EngagementService {
       paymentMethod: string | null;
       formToAttractionUrl: string | null;
       formToMunicipalityUrl: string | null;
+      formToAttractionLinkId: number | null;
+      formToMunicipalityLinkId2: number | null;
       quickBooksNumber: string | null;
       canApplyForWaiver: boolean | null;
       iaeWaiverInstructionsText: string | null;
       completedWaiverUrl: string | null;
+      completedWaiverLinkId: number | null;
       iaeWaiverSubmissionDate: string | null;
       iaeWaiverAppNumber: string | null;
       iaeWaiverUrl: string | null;
+      iaeWaiverLinkId: number | null;
       tourWaiverUrl: string | null;
+      tourWaiverLinkId: number | null;
       exceptionsNotes: string | null;
     }>
   > {
@@ -2872,16 +2887,21 @@ export class EngagementService {
             ,w.WithholdingAgencyName AS withholdingAgencyName
             ,w.WithholdingPayee AS withholdingPayee
             ,w.PaymentMethod AS paymentMethod
-            ,w.FormToAttractionURL AS formToAttractionUrl
-            ,w.FormToMunicipalityURL AS formToMunicipalityUrl
+            ,COALESCE(fa.LinkURL, w.FormToAttractionURL) AS formToAttractionUrl
+            ,COALESCE(fm.LinkURL, w.FormToMunicipalityURL2) AS formToMunicipalityUrl
+            ,w.FormToAttractionLinkID AS formToAttractionLinkId
+            ,w.FormToMunicipalityLinkID2 AS formToMunicipalityLinkId2
             ,w.QuickBooksNumber AS quickBooksNumber
             ,w.CanApplyForWaiver AS canApplyForWaiver
             ,w.IAEWaiverInstructions AS iaeWaiverInstructionsText
-            ,w.CompletedWaiverURL AS completedWaiverUrl
+            ,COALESCE(cw.LinkURL, w.CompletedWaiverURL) AS completedWaiverUrl
+            ,w.CompletedWaiverLinkID AS completedWaiverLinkId
             ,w.IAEWaiverSubmissionDate AS iaeWaiverSubmissionDate
             ,w.IAEWaiverAppNumber AS iaeWaiverAppNumber
-            ,w.IAEWaiverURL AS iaeWaiverUrl
-            ,w.TourWaiverURL AS tourWaiverUrl
+            ,COALESCE(iw.LinkURL, w.IAEWaiverURL) AS iaeWaiverUrl
+            ,w.IAEWaiverLinkID AS iaeWaiverLinkId
+            ,COALESCE(tw.LinkURL, w.TourWaiverURL) AS tourWaiverUrl
+            ,w.TourWaiverLinkID AS tourWaiverLinkId
             ,w.ExceptionsNotes AS exceptionsNotes`;
     try {
       rows = await manager.query(
@@ -2896,6 +2916,11 @@ export class EngagementService {
             w.IAEWaiverInstructionsID AS iaeWaiverInstructionsId
             ${extraCols}
           FROM [dbo].[NonResidentWithholding] w
+          LEFT JOIN dbo.Link fa ON fa.LinkID = w.FormToAttractionLinkID
+          LEFT JOIN dbo.Link fm ON fm.LinkID = w.FormToMunicipalityLinkID2
+          LEFT JOIN dbo.Link cw ON cw.LinkID = w.CompletedWaiverLinkID
+          LEFT JOIN dbo.Link iw ON iw.LinkID = w.IAEWaiverLinkID
+          LEFT JOIN dbo.Link tw ON tw.LinkID = w.TourWaiverLinkID
           ORDER BY w.WithholdingID ASC
         `,
       );
@@ -2913,6 +2938,11 @@ export class EngagementService {
             w.IAEWaiverInstructionsID AS iaeWaiverInstructionsId
             ${extraCols}
           FROM [dbo].[NonResidentWithholding] w
+          LEFT JOIN dbo.Link fa ON fa.LinkID = w.FormToAttractionLinkID
+          LEFT JOIN dbo.Link fm ON fm.LinkID = w.FormToMunicipalityLinkID2
+          LEFT JOIN dbo.Link cw ON cw.LinkID = w.CompletedWaiverLinkID
+          LEFT JOIN dbo.Link iw ON iw.LinkID = w.IAEWaiverLinkID
+          LEFT JOIN dbo.Link tw ON tw.LinkID = w.TourWaiverLinkID
           ORDER BY w.WithholdingID ASC
         `,
       );
@@ -2949,14 +2979,19 @@ export class EngagementService {
           paymentMethod: row.paymentMethod == null ? null : String(row.paymentMethod),
           formToAttractionUrl: row.formToAttractionUrl == null ? null : String(row.formToAttractionUrl),
           formToMunicipalityUrl: row.formToMunicipalityUrl == null ? null : String(row.formToMunicipalityUrl),
+          formToAttractionLinkId: row.formToAttractionLinkId == null ? null : Number(row.formToAttractionLinkId),
+          formToMunicipalityLinkId2: row.formToMunicipalityLinkId2 == null ? null : Number(row.formToMunicipalityLinkId2),
           quickBooksNumber: row.quickBooksNumber == null ? null : String(row.quickBooksNumber),
           canApplyForWaiver: row.canApplyForWaiver == null ? null : Boolean(row.canApplyForWaiver),
           iaeWaiverInstructionsText: row.iaeWaiverInstructionsText == null ? null : String(row.iaeWaiverInstructionsText),
           completedWaiverUrl: row.completedWaiverUrl == null ? null : String(row.completedWaiverUrl),
+          completedWaiverLinkId: row.completedWaiverLinkId == null ? null : Number(row.completedWaiverLinkId),
           iaeWaiverSubmissionDate: toDateOnly(row.iaeWaiverSubmissionDate),
           iaeWaiverAppNumber: row.iaeWaiverAppNumber == null ? null : String(row.iaeWaiverAppNumber),
           iaeWaiverUrl: row.iaeWaiverUrl == null ? null : String(row.iaeWaiverUrl),
+          iaeWaiverLinkId: row.iaeWaiverLinkId == null ? null : Number(row.iaeWaiverLinkId),
           tourWaiverUrl: row.tourWaiverUrl == null ? null : String(row.tourWaiverUrl),
+          tourWaiverLinkId: row.tourWaiverLinkId == null ? null : Number(row.tourWaiverLinkId),
           exceptionsNotes: row.exceptionsNotes == null ? null : String(row.exceptionsNotes),
         };
       })
@@ -2973,6 +3008,9 @@ export class EngagementService {
       withholdingTaxRate?: number | null;
       withholdingAgencyName?: string | null;
       completedWaiverUrl?: string | null;
+      iaeWaiverUrl?: string | null;
+      formToAttractionUrl?: string | null;
+      formToMunicipalityUrl?: string | null;
       iaeWaiverSubmissionDate?: string | null;
       iaeWaiverAppNumber?: string | null;
       tourWaiverUrl?: string | null;
@@ -2991,11 +3029,47 @@ export class EngagementService {
     strField('WithholdingArea', dto.withholdingArea, 100);
     numField('WithholdingTaxRate', dto.withholdingTaxRate);
     strField('WithholdingAgencyName', dto.withholdingAgencyName, 200);
-    strField('CompletedWaiverURL', dto.completedWaiverUrl, 2048);
     strField('IAEWaiverSubmissionDate', dto.iaeWaiverSubmissionDate, 10);
     strField('IAEWaiverAppNumber', dto.iaeWaiverAppNumber, 100);
-    strField('TourWaiverURL', dto.tourWaiverUrl, 2048);
     strField('ExceptionsNotes', dto.exceptionsNotes, 4000);
+    const hasLinkUpdate = [
+      dto.completedWaiverUrl,
+      dto.tourWaiverUrl,
+      dto.iaeWaiverUrl,
+      dto.formToAttractionUrl,
+      dto.formToMunicipalityUrl,
+    ].some((value) => value !== undefined);
+    if (hasLinkUpdate) {
+      const current = await this.dataSource.query(
+        `SELECT [CompletedWaiverLinkID] AS completedId,
+                [TourWaiverLinkID] AS tourId,
+                [IAEWaiverLinkID] AS iaeId,
+                [FormToAttractionLinkID] AS attractionId,
+                [FormToMunicipalityLinkID2] AS municipalityId
+         FROM dbo.NonResidentWithholding WHERE [WithholdingID] = ${id}`,
+      ) as Record<string, unknown>[];
+      const currentRow = current[0] ?? {};
+      if (dto.completedWaiverUrl !== undefined) {
+        const linkId = await this.upsertUrlLink(dto.completedWaiverUrl, Number(currentRow.completedId) || null, 'Completed waiver');
+        sets.push(`[CompletedWaiverLinkID] = ${linkId == null ? 'NULL' : linkId}`);
+      }
+      if (dto.tourWaiverUrl !== undefined) {
+        const linkId = await this.upsertUrlLink(dto.tourWaiverUrl, Number(currentRow.tourId) || null, 'Tour waiver');
+        sets.push(`[TourWaiverLinkID] = ${linkId == null ? 'NULL' : linkId}`);
+      }
+      if (dto.iaeWaiverUrl !== undefined) {
+        const linkId = await this.upsertUrlLink(dto.iaeWaiverUrl, Number(currentRow.iaeId) || null, 'IAE waiver');
+        sets.push(`[IAEWaiverLinkID] = ${linkId == null ? 'NULL' : linkId}`);
+      }
+      if (dto.formToAttractionUrl !== undefined) {
+        const linkId = await this.upsertUrlLink(dto.formToAttractionUrl, Number(currentRow.attractionId) || null, 'Form to attraction');
+        sets.push(`[FormToAttractionLinkID] = ${linkId == null ? 'NULL' : linkId}`);
+      }
+      if (dto.formToMunicipalityUrl !== undefined) {
+        const linkId = await this.upsertUrlLink(dto.formToMunicipalityUrl, Number(currentRow.municipalityId) || null, 'Form to municipality');
+        sets.push(`[FormToMunicipalityLinkID2] = ${linkId == null ? 'NULL' : linkId}`);
+      }
+    }
     if (sets.length === 0) return;
     await this.dataSource.query(
       `UPDATE dbo.NonResidentWithholding SET ${sets.join(', ')} WHERE [WithholdingID] = ${id}`,
@@ -9725,8 +9799,10 @@ export class EngagementService {
               [AdditionallyInsured] AS additionallyInsured,
               [AnnotatedPdfBlobName] AS annotatedPdfBlobName,
               [OriginalFilename] AS originalFilename,
-              [OneDrivePdfUrl] AS oneDrivePdfUrl
+              COALESCE(l.[LinkURL], [OneDrivePdfUrl]) AS oneDrivePdfUrl,
+              [OneDrivePdfLinkID] AS oneDrivePdfLinkId
        FROM dbo.PerformanceContracts
+            LEFT JOIN dbo.Link l ON l.[LinkID] = [OneDrivePdfLinkID]
        WHERE [EngagementID] = ${eid}
        ORDER BY [ContractID] DESC`,
     );
@@ -9819,7 +9895,10 @@ export class EngagementService {
     addCol('AdditionallyInsured', this.toJsonColumnValue(dto.additionallyInsured), 20000);
     addCol('AnnotatedPdfBlobName', dto.annotatedPdfBlobName, 500);
     addCol('OriginalFilename', dto.originalFilename, 500);
-    addCol('OneDrivePdfUrl', dto.oneDrivePdfUrl, 1000);
+    if (dto.oneDrivePdfUrl !== undefined) {
+      const linkId = await this.upsertUrlLink(dto.oneDrivePdfUrl, null, 'OneDrive contract PDF');
+      addCol('OneDrivePdfLinkID', linkId);
+    }
 
     const result = await this.dataSource.query(
       `INSERT INTO dbo.PerformanceContracts (${cols.join(', ')}) OUTPUT INSERTED.[ContractID] AS contractId VALUES (${vals.join(', ')})`,
@@ -9876,7 +9955,18 @@ export class EngagementService {
     addSet('AdditionallyInsured', this.toJsonColumnValue(dto.additionallyInsured), 20000);
     addSet('AnnotatedPdfBlobName', dto.annotatedPdfBlobName, 500);
     addSet('OriginalFilename', dto.originalFilename, 500);
-    addSet('OneDrivePdfUrl', dto.oneDrivePdfUrl, 1000);
+    if (dto.oneDrivePdfUrl !== undefined) {
+      const existing = await this.dataSource.query(
+        `SELECT [OneDrivePdfLinkID] AS linkId FROM dbo.PerformanceContracts
+         WHERE [ContractID] = ${cid} AND [EngagementID] = ${eid}`,
+      ) as Record<string, unknown>[];
+      const linkId = await this.upsertUrlLink(
+        dto.oneDrivePdfUrl,
+        Number(existing[0]?.linkId) || null,
+        'OneDrive contract PDF',
+      );
+      addSet('OneDrivePdfLinkID', linkId);
+    }
 
     if (sets.length === 0) return;
 
