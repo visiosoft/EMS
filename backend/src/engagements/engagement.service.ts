@@ -4047,6 +4047,20 @@ export class EngagementService {
         )`;
   }
 
+  /**
+   * Latest/final performance date as `yyyy-MM-dd` string. Used to determine whether an
+   * Engagement is still "upcoming" (i.e. has any performance left), rather than the
+   * opening performance date which only reflects the first scheduled performance.
+   */
+  private finalPerformanceDateSubquery(): string {
+    return `(
+          SELECT TOP 1 CONVERT(varchar(10), cp.PerformanceDate, 23)
+          FROM dbo.[Performance] cp
+          WHERE cp.EngagementID = e.engagementId
+          ORDER BY cp.PerformanceDate DESC, cp.PerformanceTime DESC
+        )`;
+  }
+
   /** Earliest rehearsal date as `yyyy-MM-dd` (falls back to the legacy production row). */
   private engagementRehearsalDateSubquery(): string {
     return `(
@@ -4154,14 +4168,14 @@ export class EngagementService {
       );
     }
 
-    const openingSub = this.openingPerformanceDateSubquery();
+    const closingSub = this.finalPerformanceDateSubquery();
     if (f.timing === 'upcoming') {
       qb.andWhere(
-        `(${openingSub} IS NULL OR CAST(${openingSub} AS DATE) >= CAST(GETDATE() AS DATE))`,
+        `(${closingSub} IS NULL OR CAST(${closingSub} AS DATE) >= CAST(GETDATE() AS DATE))`,
       );
     } else if (f.timing === 'past') {
       qb.andWhere(
-        `(${openingSub} IS NOT NULL AND CAST(${openingSub} AS DATE) < CAST(GETDATE() AS DATE))`,
+        `(${closingSub} IS NOT NULL AND CAST(${closingSub} AS DATE) < CAST(GETDATE() AS DATE))`,
       );
     }
 
