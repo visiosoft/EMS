@@ -1,6 +1,5 @@
-import { Cloud, ExternalLink, Loader2, Upload } from 'lucide-react';
-import { useRef, useState } from 'react';
-import { uploadLinkFile } from '@/api/linkFilesApi';
+import { Cloud, ExternalLink, Loader2 } from 'lucide-react';
+import { useState } from 'react';
 import { deriveLinkFieldName, extractLinkDisplayName, withLinkDisplayName } from '@/lib/linkDisplayName';
 import {
   isSharePointPickerConfigured,
@@ -31,7 +30,7 @@ export function SystemLinkField({
   value,
   onChange,
   disabled,
-  placeholder = 'https://... or upload a file',
+  placeholder = 'https://... or upload a file from SharePoint',
   accept = DEFAULT_ACCEPT,
   onError,
   showOpenLink = true,
@@ -39,8 +38,7 @@ export function SystemLinkField({
   hideLabel = false,
   showLinkName = true,
 }: Props) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState<'upload' | 'sharepoint' | null>(null);
+  const [busy, setBusy] = useState<'sharepoint' | null>(null);
   const [isFocused, setIsFocused] = useState(false);
   // The visible field label can be verbose (e.g. "Link to PDF of X") — show the short form as the link name.
   const linkName = deriveLinkFieldName(label);
@@ -104,40 +102,6 @@ export function SystemLinkField({
         </div>
         {showFileActions && (
         <div className={`flex min-w-0 flex-wrap items-start gap-1 self-start lg:flex-nowrap ${showLinkName ? 'sm:col-start-2 sm:col-span-1 lg:col-start-3 lg:col-span-1' : 'sm:col-start-2 sm:col-span-1'}`}>
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="hidden"
-            accept={accept}
-            disabled={disabled || busy !== null}
-            onChange={async (event) => {
-              const file = event.target.files?.[0];
-              event.currentTarget.value = '';
-              if (!file) return;
-              setBusy('upload');
-              try {
-                const uploaded = await uploadLinkFile(file);
-                onChange(withLinkDisplayName(uploaded.url, uploaded.name));
-              } catch (error) {
-                reportError(error);
-              } finally {
-                setBusy(null);
-              }
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={disabled || busy !== null}
-            className="inline-flex h-[38px] w-[38px] items-center justify-center rounded-md border border-border text-text-secondary hover:bg-elevated hover:text-text-primary disabled:opacity-50"
-            title="Upload file from this computer"
-          >
-            {busy === 'upload' ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Upload className="h-4 w-4" />
-            )}
-          </button>
           {isSharePointPickerConfigured() && (
             <button
               type="button"

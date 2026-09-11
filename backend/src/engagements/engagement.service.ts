@@ -37,6 +37,8 @@ import { NonResidentWithholding } from '../entities/non-resident-withholding.ent
 import { ArtistFinance } from '../entities/artist-finance.entity';
 import { SettlementFinance } from '../entities/settlement-finance.entity';
 import { Performance } from '../entities/performance.entity';
+import { readFileSync } from 'fs';
+import { unlink } from 'fs/promises';
 import { PerformanceTicketing } from '../entities/performance-ticketing.entity';
 import { Role } from '../entities/role.entity';
 import { TicketingSales } from '../entities/ticketing-sales.entity';
@@ -44,7 +46,7 @@ import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
 import { EmsAppCreatedStore } from '../attraction-tours/ems-app-created.store';
 import { DocumentLibraryService } from '../document-library/document-library.service';
-import { buildEngagementFolderHierarchies, ENGAGEMENT_FOLDER_STRUCTURE } from './engagement-folder-structure';
+import { buildEngagementFolderHierarchies, ENGAGEMENT_FOLDER_STRUCTURE, sanitizeFolderName } from './engagement-folder-structure';
 import { CreateEngagementDto } from './dto/create-engagement.dto';
 import { CreatePerformanceDto } from './dto/create-performance.dto';
 import { UpdateEngagementDto } from './dto/update-engagement.dto';
@@ -4045,6 +4047,20 @@ export class EngagementService {
         )`;
   }
 
+  /**
+   * Latest/final performance date as `yyyy-MM-dd` string. Used to determine whether an
+   * Engagement is still "upcoming" (i.e. has any performance left), rather than the
+   * opening performance date which only reflects the first scheduled performance.
+   */
+  private finalPerformanceDateSubquery(): string {
+    return `(
+          SELECT TOP 1 CONVERT(varchar(10), cp.PerformanceDate, 23)
+          FROM dbo.[Performance] cp
+          WHERE cp.EngagementID = e.engagementId
+          ORDER BY cp.PerformanceDate DESC, cp.PerformanceTime DESC
+        )`;
+  }
+
   /** Earliest rehearsal date as `yyyy-MM-dd` (falls back to the legacy production row). */
   private engagementRehearsalDateSubquery(): string {
     return `(
@@ -4152,14 +4168,14 @@ export class EngagementService {
       );
     }
 
-    const openingSub = this.openingPerformanceDateSubquery();
+    const closingSub = this.finalPerformanceDateSubquery();
     if (f.timing === 'upcoming') {
       qb.andWhere(
-        `(${openingSub} IS NULL OR CAST(${openingSub} AS DATE) >= CAST(GETDATE() AS DATE))`,
+        `(${closingSub} IS NULL OR CAST(${closingSub} AS DATE) >= CAST(GETDATE() AS DATE))`,
       );
     } else if (f.timing === 'past') {
       qb.andWhere(
-        `(${openingSub} IS NOT NULL AND CAST(${openingSub} AS DATE) < CAST(GETDATE() AS DATE))`,
+        `(${closingSub} IS NOT NULL AND CAST(${closingSub} AS DATE) < CAST(GETDATE() AS DATE))`,
       );
     }
 
@@ -9842,6 +9858,127 @@ export class EngagementService {
     if (val === undefined) return undefined;
     if (val === null || val.length === 0) return null;
     return JSON.stringify(val);
+  }
+
+  /**
+   * Processes an uploaded contract file by storing it in the Engagement's Contracts folder
+   * in Cloud Server (SharePoint/OneDrive via Graph API, or local static upload fallback)
+   * and automatically saving the extracted contract fields into SQL.
+   */
+  async processAndAutoSaveUploadedContract(
+    engagementId: number,
+    file: Express.Multer.File,
+    extractedData: import('./contract-extraction.service').ExtractedContractData,
+    fieldMeta: import('./contract-extraction.service').ContractFieldMetaMap,
+  ): Promise<{
+    contractId: number;
+    extracted: import('./contract-extraction.service').ExtractedContractData;
+    fieldMeta: import('./contract-extraction.service').ContractFieldMetaMap;
+    originalFilename: string;
+    oneDrivePdfUrl: string;
+    annotatedPdfBlobName: string;
+  }> {
+    await this.assertEngagementExists(engagementId);
+    let contractUrl = `/uploads/contracts/${file.filename}`;
+    let uploadedToCloud = false;
+
+    try {
+      const folderCtx = await this.resolveEngagementFolderContext(engagementId);
+      if (folderCtx) {
+        const market = folderCtx.marketName ? sanitizeFolderName(folderCtx.marketName) : 'Unknown Market';
+        const attraction = folderCtx.attractionName ? sanitizeFolderName(folderCtx.attractionName) : 'Unknown Attraction';
+        const folderSegments = [folderCtx.year, market, attraction, 'Contracts', 'Tour'];
+
+        const source = this.documentLibrary.getEngagementSource();
+        const folderRes = await this.documentLibrary.ensureFolderHierarchy(folderSegments, source);
+        const folderPath = folderRes.path || folderSegments.join('/');
+
+        const fileBuffer = readFileSync(file.path);
+        const cloudItem = await this.documentLibrary.uploadFile(
+          folderPath,
+          file.originalname,
+          fileBuffer,
+          file.mimetype || 'application/pdf',
+          source,
+        );
+
+        if (cloudItem && cloudItem.url) {
+          contractUrl = cloudItem.url;
+          uploadedToCloud = true;
+        }
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Failed to upload contract to Cloud Server / SharePoint for engagement ${engagementId}: ${
+          err instanceof Error ? err.message : String(err)
+        }. Falling back to local persistent upload link.`,
+      );
+    }
+
+    if (uploadedToCloud) {
+      await unlink(file.path).catch(() => {});
+    }
+
+    const trimOrNull = (v?: string | null) => (v && v.trim() ? v.trim() : null);
+    const numOrNull = (v?: number | null) => (v != null && Number.isFinite(v) ? v : null);
+
+    const saveDto: import('./dto/save-performance-contract.dto').SavePerformanceContractDto = {
+      agency: trimOrNull(extractedData.agency),
+      agent: trimOrNull(extractedData.agent),
+      attraction: trimOrNull(extractedData.attraction),
+      venueName: trimOrNull(extractedData.venueName),
+      venueAddress: trimOrNull(extractedData.venueAddress),
+      venueCity: trimOrNull(extractedData.venueCity),
+      venueState: trimOrNull(extractedData.venueState),
+      venueCountry: trimOrNull(extractedData.venueCountry),
+      producer: trimOrNull(extractedData.producer),
+      producerAddress: trimOrNull(extractedData.producerAddress),
+      producerFedId: trimOrNull(extractedData.producerFedId),
+      guaranteeAmount: numOrNull(extractedData.guaranteeAmount),
+      guaranteeCurrency: trimOrNull(extractedData.guaranteeCurrency),
+      depositAmount: numOrNull(extractedData.depositAmount),
+      depositDueDate: trimOrNull(extractedData.depositDueDate),
+      balanceAmount: numOrNull(extractedData.balanceAmount),
+      balanceDueDate: trimOrNull(extractedData.balanceDueDate),
+      royaltyDescription: trimOrNull(extractedData.royaltyDescription),
+      overageDescription: trimOrNull(extractedData.overageDescription),
+      paymentTerms: trimOrNull(extractedData.paymentTerms),
+      paymentMethodType: trimOrNull(extractedData.paymentMethodType),
+      paymentPayableTo: trimOrNull(extractedData.paymentPayableTo),
+      paymentBankName: trimOrNull(extractedData.paymentBankName),
+      performances: extractedData.performances?.length ? extractedData.performances : null,
+      additionallyInsured: extractedData.additionallyInsured?.length ? extractedData.additionallyInsured : null,
+      oneDrivePdfUrl: contractUrl,
+      originalFilename: file.originalname,
+      annotatedPdfBlobName: null,
+    };
+
+    const saveResult = await this.savePerformanceContract(engagementId, saveDto);
+
+    try {
+      const finances = (await this.dataSource.query(
+        `SELECT [FinanceID] FROM dbo.EngagementFinances WHERE [EngagementID] = ${Math.trunc(engagementId)}`,
+      )) as Record<string, unknown>[];
+      if (finances.length > 0 && finances[0].FinanceID) {
+        await this.tryPersistFinanceBookingFields(Number(finances[0].FinanceID), {
+          attractionContractSharePointLink: contractUrl,
+        });
+      }
+    } catch {
+      // Non-critical if finance link update fails
+    }
+
+    return {
+      contractId: saveResult.contractId,
+      extracted: {
+        ...extractedData,
+        oneDrivePdfUrl: contractUrl,
+      },
+      fieldMeta,
+      originalFilename: file.originalname,
+      oneDrivePdfUrl: contractUrl,
+      annotatedPdfBlobName: '',
+    };
   }
 
   async savePerformanceContract(

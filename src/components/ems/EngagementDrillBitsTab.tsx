@@ -1029,6 +1029,21 @@ export function EngagementDrillBitsTab({
   const firstPerformance = (performancesQuery.data ?? [])[0] ?? null;
   const firstPerformanceId = firstPerformance?.performanceId ?? null;
 
+  // The opening performance is the earliest not-yet-passed date/time; once every
+  // performance is in the past, no row is tagged as the opening.
+  const openingPerformanceId = useMemo(() => {
+    const rows = performancesQuery.data ?? [];
+    if (rows.length === 0) return null;
+    const todayYmd = new Date().toISOString().slice(0, 10);
+    const upcoming = rows.filter((r) => r.performanceDate >= todayYmd);
+    if (upcoming.length === 0) return null;
+    return upcoming.reduce((earliest, r) => {
+      const key = `${r.performanceDate} ${r.performanceTime ?? ''}`;
+      const earliestKey = `${earliest.performanceDate} ${earliest.performanceTime ?? ''}`;
+      return key < earliestKey ? r : earliest;
+    }, upcoming[0]).performanceId;
+  }, [performancesQuery.data]);
+
   const ticketingQuery = useQuery({
     queryKey: ['engagements', engagementId, 'performance-ticketing', firstPerformanceId] as const,
     queryFn: () => fetchEngagementPerformanceTicketing(engagementId, firstPerformanceId!),
@@ -1774,11 +1789,11 @@ export function EngagementDrillBitsTab({
           </div>
         ) : (
           <ul className="space-y-2">
-            {(performancesQuery.data ?? []).map((p, idx) => (
+            {(performancesQuery.data ?? []).map((p) => (
               <EditablePerformanceRow
                 key={p.performanceId}
                 perf={p}
-                isPrimary={idx === 0}
+                isPrimary={p.performanceId === openingPerformanceId}
                 engagementId={engagementId}
                 allowDeleteShow={canDeleteIndividualShow}
                 venueCapacity={venueSeatingCapacity}

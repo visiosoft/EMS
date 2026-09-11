@@ -1451,6 +1451,8 @@ export interface ContractFieldMeta {
 export type ContractFieldMetaMap = Partial<Record<string, ContractFieldMeta>>;
 
 export interface ContractUploadResponse {
+  contractId?: number;
+  oneDrivePdfUrl?: string;
   extracted: {
     agency: string | null;
     agent: string | null;

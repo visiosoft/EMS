@@ -63,7 +63,7 @@ export function InternalQuickLinksSidebar() {
                       {content}
                     </a>
                   ) : link.view ? (
-                    <button type="button" onClick={() => navigate(link.view!)} className={className}>
+                    <button type="button" onClick={() => navigate(link.view!, link.viewData)} className={className}>
                       {content}
                     </button>
                   ) : null}

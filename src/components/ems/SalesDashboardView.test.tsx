@@ -459,4 +459,82 @@ describe('SalesDashboardView', () => {
     expect(within(valuesRow as HTMLElement).getAllByText('5')[0]).toBeVisible();
     expect(within(valuesRow as HTMLElement).getAllByText('$50')[0]).toBeVisible();
   });
+
+  it('does not trigger change on month swap in date picker, only when actual date is selected', () => {
+    const onAsOfChange = vi.fn();
+    render(
+      <SalesDashboardView
+        asOf="2026-05-22"
+        onAsOfChange={onAsOfChange}
+        onBack={vi.fn()}
+        loading={false}
+        error={null}
+        onRetry={vi.fn()}
+        data={dashboard()}
+      />,
+    );
+
+    // Click the Reporting as of date picker trigger
+    const trigger = screen.getByRole('button', { name: /reporting as of/i });
+    fireEvent.click(trigger);
+
+    // Swap months by clicking previous/next month navigation buttons
+    const prevMonthButton = screen.getByRole('button', { name: 'Go to previous month' });
+    fireEvent.click(prevMonthButton);
+    expect(onAsOfChange).not.toHaveBeenCalled();
+
+    const nextMonthButton = screen.getByRole('button', { name: 'Go to next month' });
+    fireEvent.click(nextMonthButton);
+    expect(onAsOfChange).not.toHaveBeenCalled();
+
+    // Select an actual date (May 15)
+    const day15 = screen.getByRole('gridcell', { name: '15' });
+    fireEvent.click(day15);
+
+    expect(onAsOfChange).toHaveBeenCalledTimes(1);
+    expect(onAsOfChange).toHaveBeenCalledWith('2026-05-15');
+  });
+
+  it('handles comparison view date selections without triggering on month swap', () => {
+    const onDateOneChange = vi.fn();
+    const onDateTwoChange = vi.fn();
+    const compData = dashboard();
+    compData.asOfDate = '2026-05-15';
+
+    render(
+      <SalesDashboardView
+        asOf="2026-05-22"
+        onAsOfChange={vi.fn()}
+        comparisonEnabled={true}
+        onComparisonEnabledChange={vi.fn()}
+        comparisonDateOne="2026-05-22"
+        onComparisonDateOneChange={onDateOneChange}
+        comparisonDateTwo="2026-05-15"
+        onComparisonDateTwoChange={onDateTwoChange}
+        comparisonData={compData}
+        onBack={vi.fn()}
+        loading={false}
+        error={null}
+        onRetry={vi.fn()}
+        data={dashboard()}
+      />,
+    );
+
+    // Open Date 2 as of picker
+    const dateTwoTrigger = screen.getByRole('button', { name: /date 2 as of/i });
+    fireEvent.click(dateTwoTrigger);
+
+    // Click previous month button
+    const prevMonthButton = screen.getByRole('button', { name: 'Go to previous month' });
+    fireEvent.click(prevMonthButton);
+
+    expect(onDateTwoChange).not.toHaveBeenCalled();
+
+    // Click 10th of the previous month (April 10)
+    const day10Button = screen.getByRole('gridcell', { name: '10' });
+    fireEvent.click(day10Button);
+
+    expect(onDateTwoChange).toHaveBeenCalledTimes(1);
+    expect(onDateTwoChange).toHaveBeenCalledWith('2026-04-10');
+  });
 });

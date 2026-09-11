@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   DefaultValuePipe,
@@ -698,9 +699,9 @@ export class EngagementController {
   }
 
   /**
-   * Upload a contract (PDF or .docx) and extract its fields. The file is parsed
-   * immediately and then discarded — only the extracted data is kept, so nothing
-   * needs to persist on disk (important on ephemeral/scaled hosts).
+   * Upload a contract (PDF or .docx), extract its fields, store the contract file
+   * in the Engagement's Contracts folder on Cloud Server/OneDrive, and automatically save
+   * the extracted details as an Existing Contract in SQL.
    */
   @Post(':id/contracts/upload')
   @HttpCode(HttpStatus.OK)
@@ -709,21 +710,26 @@ export class EngagementController {
     @Param('id', ParseIntPipe) id: number,
     @UploadedFile() file: Express.Multer.File,
   ) {
-    try {
-      const { data, fieldMeta } = await this.contractExtractionService.extractFromFile(file.path);
-      return {
-        extracted: data,
-        // Per-field confidence + source snippet for the review UI (not persisted).
-        fieldMeta,
-        originalFilename: file.originalname,
-        // File is discarded after extraction, so there is no stored blob to reference.
-        annotatedPdfBlobName: '',
-      };
-    } finally {
-      await unlink(file.path).catch(() => {
-        this.logger.warn(`Failed to delete uploaded contract file: ${file.path}`);
-      });
+    if (!file) {
+      throw new BadRequestException('No file was provided for upload.');
     }
+    let extractedData;
+    let fieldMeta;
+    try {
+      const res = await this.contractExtractionService.extractFromFile(file.path);
+      extractedData = res.data;
+      fieldMeta = res.fieldMeta;
+    } catch (err) {
+      await unlink(file.path).catch(() => {});
+      throw err;
+    }
+
+    return this.engagementService.processAndAutoSaveUploadedContract(
+      id,
+      file,
+      extractedData,
+      fieldMeta,
+    );
   }
 
   /** Save (create or update) a contract for an engagement. */
