@@ -9,7 +9,7 @@ import {
   Umbrella,
   UsersRound,
 } from "lucide-react";
-import type { InternalView } from "../routing/internalSessionRoute";
+import type { InternalView, InternalViewData } from "../routing/internalSessionRoute";
 
 export type QuickLinkItem = {
   label: string;
@@ -17,6 +17,7 @@ export type QuickLinkItem = {
   external?: boolean;
   href?: string;
   view?: InternalView;
+  viewData?: InternalViewData;
 };
 
 export const GENUITY_HELP_CENTER_URL = "https://innovationarts.gogenuity.com/help_center";
@@ -30,7 +31,16 @@ export const QUICK_LINKS: QuickLinkItem[] = [
   { label: "PTO Requests", href: "https://signin.adp.com/", icon: CalendarDays, external: true },
   { label: "Payment Requests", href: "https://app.ramp.com/", icon: CreditCard, external: true },
   { label: "Shipping Requests", href: SHIPPING_REQUESTS_URL, icon: Mail, external: true },
-  { label: "Official Work Holidays", view: "work-holidays", icon: Umbrella },
+  {
+    label: "Official Work Holidays",
+    view: "employee-services",
+    viewData: {
+      handbook: "section",
+      handbookHash: "handbook-compensation-benefits",
+      handbookSubsection: "4.11",
+    },
+    icon: Umbrella,
+  },
 ];
 
 export const HUB_ACTION_CARDS = [

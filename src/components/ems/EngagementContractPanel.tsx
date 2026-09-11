@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Upload, ExternalLink, Trash2, Plus, X } from 'lucide-react';
+import { Loader2, Upload, Trash2, Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FormField } from './Primitives';
 import { friendlyApiError } from '@/lib/friendlyApiError';
@@ -171,7 +171,6 @@ export function EngagementContractPanel({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<ContractFormState>(emptyForm());
   const [editingContractId, setEditingContractId] = useState<number | null>(null);
-  // Per-field extraction confidence/source; populated on upload, cleared once the row is saved or edited.
   const [fieldMeta, setFieldMeta] = useState<ContractFieldMetaMap>({});
 
   const contractsQuery = useQuery({
@@ -184,7 +183,7 @@ export function EngagementContractPanel({
   const uploadMutation = useMutation({
     mutationFn: (file: File) => uploadContractPdf(engagementId, file),
     onSuccess: (data) => {
-      const { extracted, originalFilename, annotatedPdfBlobName } = data;
+      const { extracted, originalFilename, annotatedPdfBlobName, contractId, oneDrivePdfUrl } = data;
       setForm({
         agency: extracted.agency ?? '',
         agent: extracted.agent ?? '',
@@ -211,13 +210,16 @@ export function EngagementContractPanel({
         paymentBankName: extracted.paymentBankName ?? '',
         performances: extracted.performances ?? [],
         additionallyInsured: extracted.additionallyInsured ?? [],
-        oneDrivePdfUrl: extracted.oneDrivePdfUrl ?? '',
-        originalFilename,
-        annotatedPdfBlobName,
+        oneDrivePdfUrl: oneDrivePdfUrl || extracted.oneDrivePdfUrl || '',
+        originalFilename: originalFilename || '',
+        annotatedPdfBlobName: annotatedPdfBlobName || '',
       });
       setFieldMeta(data.fieldMeta ?? {});
-      setEditingContractId(null);
-      addToast('Contract data extracted. Review and save below.', 'success');
+      if (contractId) {
+        setEditingContractId(contractId);
+      }
+      invalidate();
+      addToast('Contract uploaded, extracted, and saved under Existing Contracts.', 'success');
     },
     onError: (e) => addToast(friendlyApiError(e, 'Could not upload contract.'), 'error'),
   });
@@ -265,7 +267,7 @@ export function EngagementContractPanel({
 
   const handleEdit = (row: ApiPerformanceContractRow) => {
     setForm(contractRowToForm(row));
-    setFieldMeta({}); // saved contracts carry no extraction metadata
+    setFieldMeta({});
     setEditingContractId(row.contractId);
   };
 
@@ -298,19 +300,17 @@ export function EngagementContractPanel({
   const removeInsuredParty = (index: number) =>
     setForm((prev) => ({ ...prev, additionallyInsured: prev.additionallyInsured.filter((_, i) => i !== index) }));
 
-  // Count of fields still flagged for review, shown as a summary hint after extraction.
-  const reviewCount = Object.values(fieldMeta).filter((m) => m && m.status === 'review').length;
-
   const inputCls =
-    'w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-1 focus:ring-ems-accent/50 disabled:opacity-60';
-  const textareaCls = inputCls + ' min-h-[80px] resize-y';
-  const sectionCls = 'rounded-md border border-border bg-surface/40 p-4 space-y-4';
-  const labelCls = 'text-xs font-semibold text-text-primary mb-3 block';
+    'w-full rounded-md border border-border bg-elevated px-3 py-2 text-xs text-text-primary placeholder-text-muted focus:outline-none focus:border-ems-accent/50 focus:ring-2 focus:ring-ems-accent/30 disabled:opacity-60';
+  const textareaCls =
+    'w-full rounded-md border border-border bg-elevated px-3 py-2 text-xs text-text-primary placeholder-text-muted focus:outline-none focus:border-ems-accent/50 focus:ring-2 focus:ring-ems-accent/30 disabled:opacity-60 min-h-[64px] resize-y';
+  const sectionCls = 'rounded-lg border border-border bg-card shadow-sm p-4 space-y-3';
+  const labelCls = 'text-[11px] font-bold uppercase tracking-wider text-[#00856A] block';
 
   const contracts = contractsQuery.data ?? [];
 
   return (
-    <div className="bg-card border border-border rounded-lg p-5 space-y-5">
+    <div className="space-y-4 text-xs">
       {/* Upload section */}
       <div className={sectionCls}>
         <span className={labelCls}>Upload Contract</span>
@@ -326,16 +326,17 @@ export function EngagementContractPanel({
             type="button"
             size="sm"
             variant="outline"
+            className="h-8 px-3 text-xs"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploadMutation.isPending}
           >
             {uploadMutation.isPending ? (
-              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Extracting…</span>
+              <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />Extracting &amp; Saving…</span>
             ) : (
               <span className="inline-flex items-center gap-1.5"><Upload className="h-3.5 w-3.5" />Upload Contract</span>
             )}
           </Button>
-          <span className="text-xs text-text-muted">PDF or Word (.docx), max 25 MB. Contract data will be extracted automatically.</span>
+          <span className="text-[11px] text-text-muted">PDF or Word (.docx), max 25 MB. The contract will be stored, extracted, and autosaved automatically.</span>
         </div>
       </div>
 
@@ -343,17 +344,18 @@ export function EngagementContractPanel({
       {contracts.length > 0 && (
         <div className={sectionCls}>
           <span className={labelCls}>Existing Contracts</span>
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {contracts.map((c) => (
-              <div key={c.contractId} className="flex items-center justify-between rounded border border-border bg-background px-3 py-2">
-                <div className="text-sm text-text-primary">
-                  <span className="font-medium">{c.attraction || c.venueName || `Contract #${c.contractId}`}</span>
-                  {c.originalFilename && <span className="text-text-muted ml-2 text-xs">({c.originalFilename})</span>}
+              <div key={c.contractId} className="flex items-center justify-between rounded border border-border bg-background px-3 py-1.5 text-xs">
+                <div className="text-text-primary flex items-center gap-2 truncate">
+                  <span className="font-semibold">{c.attraction || c.venueName || `Contract #${c.contractId}`}</span>
+                  {c.agency && <span className="text-text-muted text-[11px]">({c.agency})</span>}
+                  {c.originalFilename && <span className="text-text-muted text-[11px] truncate">[{c.originalFilename}]</span>}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   <button
                     type="button"
-                    className="text-xs text-ems-accent hover:underline"
+                    className="text-xs font-medium text-ems-accent hover:underline"
                     onClick={() => handleEdit(c)}
                   >
                     Edit
@@ -375,43 +377,43 @@ export function EngagementContractPanel({
       )}
 
       {/* Contract form */}
-      <div className={sectionCls}>
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <span className="text-xs font-semibold text-text-primary">
-            {editingContractId ? 'Edit Contract' : 'Contract Details'}
-          </span>
-          {/* {reviewCount > 0 && (
-            <span className="text-[11px] text-ems-amber" title="Fields the AI is unsure about — verify against the PDF before saving.">
-              {reviewCount} field{reviewCount === 1 ? '' : 's'} to review
-            </span>
-          )} */}
-        </div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-semibold text-text-primary">
+          {editingContractId ? 'Edit Contract' : 'Contract Details'}
+        </span>
+        {editingContractId && (
+          <span className="text-[11px] font-medium text-ems-accent">Editing Contract #{editingContractId}</span>
+        )}
+      </div>
 
-        {/* Talent Agency & Agent */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Section: Agency, Agent & Attraction */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Contract Details</span>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <FormField label="Talent Agency">
             <input type="text" className={inputCls} value={form.agency} onChange={set('agency')} placeholder="Agency name…" disabled={saveMutation.isPending} />
           </FormField>
           <FormField label="Talent Agent">
             <input type="text" className={inputCls} value={form.agent} onChange={set('agent')} placeholder="Agent name…" disabled={saveMutation.isPending} />
           </FormField>
-        </div>
-
-        {/* Attraction */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="Attraction">
             <input type="text" className={inputCls} value={form.attraction} onChange={set('attraction')} placeholder="Artist / show name…" disabled={saveMutation.isPending} />
           </FormField>
         </div>
+      </div>
 
-        {/* Venue info */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Section: Venue Information */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Venue Details</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <FormField label="Venue Name">
             <input type="text" className={inputCls} value={form.venueName} onChange={set('venueName')} placeholder="Venue name…" disabled={saveMutation.isPending} />
           </FormField>
           <FormField label="Venue Address">
             <input type="text" className={inputCls} value={form.venueAddress} onChange={set('venueAddress')} placeholder="Street address…" disabled={saveMutation.isPending} />
           </FormField>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <FormField label="Venue City">
             <input type="text" className={inputCls} value={form.venueCity} onChange={set('venueCity')} placeholder="City…" disabled={saveMutation.isPending} />
           </FormField>
@@ -422,9 +424,12 @@ export function EngagementContractPanel({
             <input type="text" className={inputCls} value={form.venueCountry} onChange={set('venueCountry')} placeholder="Country…" disabled={saveMutation.isPending} />
           </FormField>
         </div>
+      </div>
 
-        {/* Producer */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Section: Producer */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Producer Details</span>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <FormField label="Producer">
             <input type="text" className={inputCls} value={form.producer} onChange={set('producer')} placeholder="Producer / Promoter…" disabled={saveMutation.isPending} />
           </FormField>
@@ -435,48 +440,39 @@ export function EngagementContractPanel({
             <input type="text" className={inputCls} value={form.producerFedId} onChange={set('producerFedId')} placeholder="EIN / Tax ID…" disabled={saveMutation.isPending} />
           </FormField>
         </div>
+      </div>
 
-        {/* Financial */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* Section: Financial Terms */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Financial Terms</span>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <FormField label="Guarantee Amount">
             <input type="number" step="0.01" className={inputCls} value={form.guaranteeAmount} onChange={set('guaranteeAmount')} placeholder="0.00" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Guarantee Currency">
-            <input type="text" className={inputCls} value={form.guaranteeCurrency} onChange={set('guaranteeCurrency')} placeholder="USD" disabled={saveMutation.isPending} />
-          </FormField>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <FormField label="Deposit Amount">
             <input type="number" step="0.01" className={inputCls} value={form.depositAmount} onChange={set('depositAmount')} placeholder="0.00" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Deposit Due Date">
-            <input type="date" className={inputCls} value={form.depositDueDate} onChange={set('depositDueDate')} disabled={saveMutation.isPending} />
-          </FormField>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <FormField label="Balance Amount">
             <input type="number" step="0.01" className={inputCls} value={form.balanceAmount} onChange={set('balanceAmount')} placeholder="0.00" disabled={saveMutation.isPending} />
+          </FormField>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <FormField label="Guarantee Currency">
+            <input type="text" className={inputCls} value={form.guaranteeCurrency} onChange={set('guaranteeCurrency')} placeholder="USD" disabled={saveMutation.isPending} />
+          </FormField>
+          <FormField label="Deposit Due Date">
+            <input type="date" className={inputCls} value={form.depositDueDate} onChange={set('depositDueDate')} disabled={saveMutation.isPending} />
           </FormField>
           <FormField label="Balance Due Date">
             <input type="date" className={inputCls} value={form.balanceDueDate} onChange={set('balanceDueDate')} disabled={saveMutation.isPending} />
           </FormField>
         </div>
+      </div>
 
-        {/* Long text fields */}
-        <FormField label="Royalty Description">
-          <textarea className={textareaCls} value={form.royaltyDescription} onChange={set('royaltyDescription')} placeholder="Royalty / merchandise terms…" disabled={saveMutation.isPending} />
-        </FormField>
-        <FormField label="Overage Description">
-          <textarea className={textareaCls} value={form.overageDescription} onChange={set('overageDescription')} placeholder="Overage / bonus terms…" disabled={saveMutation.isPending} />
-        </FormField>
-        <FormField label="Payment Terms">
-          <textarea className={textareaCls} value={form.paymentTerms} onChange={set('paymentTerms')} placeholder="Payment terms…" disabled={saveMutation.isPending} />
-        </FormField>
-
-        {/* Payment method */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* Section: Payment Details */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Payment Details</span>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <FormField label="Payment Method Type">
             <input type="text" className={inputCls} value={form.paymentMethodType} onChange={set('paymentMethodType')} placeholder="Wire / Check / ACH…" disabled={saveMutation.isPending} />
           </FormField>
@@ -487,114 +483,138 @@ export function EngagementContractPanel({
             <input type="text" className={inputCls} value={form.paymentBankName} onChange={set('paymentBankName')} placeholder="Bank name…" disabled={saveMutation.isPending} />
           </FormField>
         </div>
+      </div>
 
-        {/* Performances & Insurance */}
-        <FormField label="Performances">
-          <div className="space-y-2">
-            {form.performances.map((perf, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <input
-                  type="date"
-                  className={inputCls}
-                  value={perf.date ?? ''}
-                  onChange={(e) => updatePerformance(i, { date: e.target.value })}
-                  disabled={saveMutation.isPending}
-                />
-                <input
-                  type="time"
-                  className={inputCls}
-                  value={perf.time ?? ''}
-                  onChange={(e) => updatePerformance(i, { time: e.target.value })}
-                  disabled={saveMutation.isPending}
-                />
-                <input
-                  type="text"
-                  className={inputCls}
-                  value={perf.formatted}
-                  onChange={(e) => updatePerformance(i, { formatted: e.target.value })}
-                  placeholder="e.g. Wednesday, May 7, 2025 at 7:30 PM"
-                  disabled={saveMutation.isPending}
-                />
-                <button
-                  type="button"
-                  className="shrink-0 text-text-muted hover:text-ems-coral p-1 rounded"
-                  onClick={() => removePerformance(i)}
-                  disabled={saveMutation.isPending}
-                  title="Remove performance"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-            <Button type="button" size="sm" variant="outline" onClick={addPerformance} disabled={saveMutation.isPending}>
-              <span className="inline-flex items-center gap-1.5"><Plus className="h-3.5 w-3.5" />Add Performance</span>
-            </Button>
-          </div>
-        </FormField>
-        <FormField label="Additionally Insured">
-          <div className="space-y-2">
-            {form.additionallyInsured.map((party, i) => (
-              <div key={i} className="flex items-center gap-2">
-                {i === 0 && party.trim() && party.trim().toLowerCase() === form.agency.trim().toLowerCase() && (
-                  <span className="shrink-0 text-[10px] font-medium text-text-muted">Agency</span>
-                )}
-                <input
-                  type="text"
-                  className={inputCls}
-                  value={party}
-                  onChange={(e) => updateInsuredParty(i, e.target.value)}
-                  placeholder="Additional insured party…"
-                  disabled={saveMutation.isPending}
-                />
-                <button
-                  type="button"
-                  className="shrink-0 text-text-muted hover:text-ems-coral p-1 rounded"
-                  onClick={() => removeInsuredParty(i)}
-                  disabled={saveMutation.isPending}
-                  title="Remove party"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-            <Button type="button" size="sm" variant="outline" onClick={addInsuredParty} disabled={saveMutation.isPending}>
-              <span className="inline-flex items-center gap-1.5"><Plus className="h-3.5 w-3.5" />Add Party</span>
-            </Button>
-          </div>
-        </FormField>
+      {/* Section: Descriptions & Terms */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Terms &amp; Descriptions</span>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <FormField label="Royalty Description">
+            <textarea className={textareaCls} value={form.royaltyDescription} onChange={set('royaltyDescription')} placeholder="Royalty / merchandise terms…" rows={2} disabled={saveMutation.isPending} />
+          </FormField>
+          <FormField label="Overage Description">
+            <textarea className={textareaCls} value={form.overageDescription} onChange={set('overageDescription')} placeholder="Overage / bonus terms…" rows={2} disabled={saveMutation.isPending} />
+          </FormField>
+          <FormField label="Payment Terms">
+            <textarea className={textareaCls} value={form.paymentTerms} onChange={set('paymentTerms')} placeholder="Payment terms…" rows={2} disabled={saveMutation.isPending} />
+          </FormField>
+        </div>
+      </div>
 
+      {/* Section: Performances & Parties */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Performances &amp; Parties</span>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <FormField label="Performances">
+            <div className="space-y-2">
+              {form.performances.map((perf, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <input
+                    type="date"
+                    className={inputCls}
+                    value={perf.date ?? ''}
+                    onChange={(e) => updatePerformance(i, { date: e.target.value })}
+                    disabled={saveMutation.isPending}
+                  />
+                  <input
+                    type="time"
+                    className={inputCls}
+                    value={perf.time ?? ''}
+                    onChange={(e) => updatePerformance(i, { time: e.target.value })}
+                    disabled={saveMutation.isPending}
+                  />
+                  <input
+                    type="text"
+                    className={inputCls}
+                    value={perf.formatted}
+                    onChange={(e) => updatePerformance(i, { formatted: e.target.value })}
+                    placeholder="Date / time label…"
+                    disabled={saveMutation.isPending}
+                  />
+                  <button
+                    type="button"
+                    className="shrink-0 text-text-muted hover:text-ems-coral p-1 rounded"
+                    onClick={() => removePerformance(i)}
+                    disabled={saveMutation.isPending}
+                    title="Remove performance"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+              <Button type="button" size="sm" variant="outline" className="h-7 text-xs px-2.5" onClick={addPerformance} disabled={saveMutation.isPending}>
+                <span className="inline-flex items-center gap-1"><Plus className="h-3 w-3" />Add Performance</span>
+              </Button>
+            </div>
+          </FormField>
+
+          <FormField label="Additionally Insured">
+            <div className="space-y-2">
+              {form.additionallyInsured.map((party, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  {i === 0 && party.trim() && party.trim().toLowerCase() === form.agency.trim().toLowerCase() && (
+                    <span className="shrink-0 text-[10px] font-medium text-text-muted">Agency</span>
+                  )}
+                  <input
+                    type="text"
+                    className={inputCls}
+                    value={party}
+                    onChange={(e) => updateInsuredParty(i, e.target.value)}
+                    placeholder="Additional insured party…"
+                    disabled={saveMutation.isPending}
+                  />
+                  <button
+                    type="button"
+                    className="shrink-0 text-text-muted hover:text-ems-coral p-1 rounded"
+                    onClick={() => removeInsuredParty(i)}
+                    disabled={saveMutation.isPending}
+                    title="Remove party"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+              <Button type="button" size="sm" variant="outline" className="h-7 text-xs px-2.5" onClick={addInsuredParty} disabled={saveMutation.isPending}>
+                <span className="inline-flex items-center gap-1"><Plus className="h-3 w-3" />Add Party</span>
+              </Button>
+            </div>
+          </FormField>
+        </div>
+      </div>
+
+      {/* Section: Linked File */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Linked File</span>
         <SystemLinkField
           label="OneDrive PDF URL"
           value={form.oneDrivePdfUrl}
           onChange={(oneDrivePdfUrl) => setForm((previous) => ({ ...previous, oneDrivePdfUrl }))}
           disabled={saveMutation.isPending}
         />
-
-        {/* File metadata (read-only info) */}
         {form.originalFilename && (
-          <p className="text-xs text-text-muted">Uploaded file: {form.originalFilename}</p>
+          <p className="text-[11px] text-text-muted">Uploaded file: {form.originalFilename}</p>
         )}
+      </div>
 
-        {/* Actions */}
-        <div className="flex justify-end gap-2 pt-2 border-t border-border">
-          {editingContractId && (
-            <Button type="button" size="sm" variant="outline" onClick={handleCancelEdit} disabled={saveMutation.isPending}>
-              Cancel
-            </Button>
-          )}
+      {/* Actions (Shown when editing an autosaved or existing contract) */}
+      {editingContractId ? (
+        <div className="flex justify-end gap-2">
+          <Button type="button" size="sm" variant="outline" className="h-8 px-3 text-xs" onClick={handleCancelEdit} disabled={saveMutation.isPending}>
+            Cancel
+          </Button>
           <Button
             type="button"
             size="sm"
-            className="bg-ems-accent text-white hover:opacity-90"
+            className="h-8 px-3 text-xs bg-ems-accent text-white hover:opacity-90"
             onClick={() => saveMutation.mutate()}
             disabled={saveMutation.isPending}
           >
             {saveMutation.isPending ? (
-              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-            ) : editingContractId ? 'Update Contract' : 'Save Contract'}
+              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Updating…</span>
+            ) : 'Update Contract'}
           </Button>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }

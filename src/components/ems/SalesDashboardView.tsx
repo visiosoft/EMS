@@ -31,6 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { DatePicker } from '@/components/ui/date-picker';
 
 const EMPTY = '-';
 const CHART_GRID = 'hsl(var(--border) / 0.5)';
@@ -1381,6 +1382,44 @@ function ChartUnitTabs({ unit, onChange, className }: ChartUnitTabsProps) {
   );
 }
 
+interface DatePickerControlProps {
+  label: string;
+  value: string;
+  onChange: (ymd: string) => void;
+  disabled?: boolean;
+  className?: string;
+  fullWidthMobile?: boolean;
+}
+
+function DatePickerControl({
+  label,
+  value,
+  onChange,
+  disabled = false,
+  className,
+  fullWidthMobile = false,
+}: DatePickerControlProps) {
+  return (
+    <div
+      className={cn(
+        'flex items-center justify-between gap-3 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium uppercase tracking-wide text-text-muted',
+        fullWidthMobile ? 'w-full sm:w-auto' : 'min-w-0',
+        disabled && 'opacity-60',
+        className,
+      )}
+    >
+      <span className="truncate">{label}</span>
+      <DatePicker
+        value={value}
+        onChange={onChange}
+        disabled={disabled}
+        ariaLabel={`${label}: ${value}`}
+        className="w-[9.25rem] bg-card"
+      />
+    </div>
+  );
+}
+
 export interface SalesDashboardViewProps {
   asOf: string;
   onAsOfChange: (ymd: string) => void;
@@ -1542,10 +1581,37 @@ export function SalesDashboardView({
         <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-sm 2xl:flex-row 2xl:items-center 2xl:justify-between">
           <div className="min-w-0"><h1 className="text-xl font-bold tracking-tight text-text-primary md:text-2xl">Sales Trends Comparison</h1><p className="text-sm text-text-secondary">Compare complete sales summaries for two reporting dates</p></div>
           <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 2xl:w-auto 2xl:grid-cols-4">
-            <label className={`flex min-w-0 items-center justify-between gap-3 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium uppercase tracking-wide text-text-muted ${comparisonEnabled ? 'opacity-60' : ''}`}><span className="truncate">Reporting as of</span><input type="date" disabled={comparisonEnabled} className="w-[9.25rem] shrink-0 rounded-md border border-border bg-card px-2 py-1.5 text-sm font-medium normal-case tracking-normal text-text-primary disabled:cursor-not-allowed disabled:opacity-60" value={asOf} onChange={(event) => onAsOfChange(event.target.value)} /></label>
-            {onComparisonEnabledChange ? <label className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium text-text-secondary"><input type="checkbox" checked={comparisonEnabled} onChange={(event) => onComparisonEnabledChange(event.target.checked)} className="h-4 w-4 shrink-0 accent-ems-accent" />Compare two dates</label> : null}
-            {comparisonDateOne && onComparisonDateOneChange ? <label className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium uppercase tracking-wide text-text-muted"><span className="truncate">Date 1 as of</span><input type="date" className="w-[9.25rem] shrink-0 rounded-md border border-border bg-card px-2 py-1.5 text-sm font-medium normal-case tracking-normal text-text-primary" value={comparisonDateOne} onChange={(event) => onComparisonDateOneChange(event.target.value)} /></label> : null}
-            {comparisonDateTwo && onComparisonDateTwoChange ? <label className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium uppercase tracking-wide text-text-muted"><span className="truncate">Date 2 as of</span><input type="date" className="w-[9.25rem] shrink-0 rounded-md border border-border bg-card px-2 py-1.5 text-sm font-medium normal-case tracking-normal text-text-primary" value={comparisonDateTwo} onChange={(event) => onComparisonDateTwoChange(event.target.value)} /></label> : null}
+            <DatePickerControl
+              label="Reporting as of"
+              value={asOf}
+              onChange={onAsOfChange}
+              disabled={comparisonEnabled}
+            />
+            {onComparisonEnabledChange ? (
+              <label className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium text-text-secondary">
+                <input
+                  type="checkbox"
+                  checked={comparisonEnabled}
+                  onChange={(event) => onComparisonEnabledChange(event.target.checked)}
+                  className="h-4 w-4 shrink-0 accent-ems-accent"
+                />
+                Compare two dates
+              </label>
+            ) : null}
+            {comparisonDateOne && onComparisonDateOneChange ? (
+              <DatePickerControl
+                label="Date 1 as of"
+                value={comparisonDateOne}
+                onChange={onComparisonDateOneChange}
+              />
+            ) : null}
+            {comparisonDateTwo && onComparisonDateTwoChange ? (
+              <DatePickerControl
+                label="Date 2 as of"
+                value={comparisonDateTwo}
+                onChange={onComparisonDateTwoChange}
+              />
+            ) : null}
           </div>
         </div>
         <div className="grid min-w-0 gap-5 2xl:grid-cols-2">
@@ -1578,19 +1644,42 @@ export function SalesDashboardView({
             <p className="truncate text-sm text-text-secondary">{pageTitle}</p>
           </div>
         </div>
-        {!comparisonPane && <label className={`flex w-full items-center justify-between gap-3 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium uppercase tracking-wide text-text-muted sm:w-auto ${comparisonEnabled ? 'opacity-60' : ''}`}>
-          <span>Reporting as of</span>
-          <input
-            type="date"
-            disabled={comparisonEnabled}
-            className="w-[9.25rem] rounded-md border border-border bg-card px-2 py-1.5 text-sm font-medium normal-case tracking-normal text-text-primary disabled:cursor-not-allowed disabled:opacity-60"
+        {!comparisonPane && (
+          <DatePickerControl
+            label="Reporting as of"
             value={asOf}
-            onChange={(event) => onAsOfChange(event.target.value)}
+            onChange={onAsOfChange}
+            disabled={comparisonEnabled}
+            fullWidthMobile
           />
-        </label>}
-        {!comparisonPane && onComparisonEnabledChange ? <label className="flex items-center gap-2 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium text-text-secondary"><input type="checkbox" checked={comparisonEnabled} onChange={(event) => onComparisonEnabledChange(event.target.checked)} className="h-4 w-4 accent-ems-accent" />Compare two dates</label> : null}
-        {!comparisonPane && comparisonEnabled && comparisonDateOne && onComparisonDateOneChange ? <label className="flex w-full items-center justify-between gap-3 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium uppercase tracking-wide text-text-muted sm:w-auto"><span>Date 1 as of</span><input type="date" className="w-[9.25rem] rounded-md border border-border bg-card px-2 py-1.5 text-sm font-medium normal-case tracking-normal text-text-primary" value={comparisonDateOne} onChange={(event) => onComparisonDateOneChange(event.target.value)} /></label> : null}
-        {!comparisonPane && comparisonEnabled && comparisonDateTwo && onComparisonDateTwoChange ? <label className="flex w-full items-center justify-between gap-3 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium uppercase tracking-wide text-text-muted sm:w-auto"><span>Date 2 as of</span><input type="date" className="w-[9.25rem] rounded-md border border-border bg-card px-2 py-1.5 text-sm font-medium normal-case tracking-normal text-text-primary" value={comparisonDateTwo} onChange={(event) => onComparisonDateTwoChange(event.target.value)} /></label> : null}
+        )}
+        {!comparisonPane && onComparisonEnabledChange ? (
+          <label className="flex items-center gap-2 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium text-text-secondary">
+            <input
+              type="checkbox"
+              checked={comparisonEnabled}
+              onChange={(event) => onComparisonEnabledChange(event.target.checked)}
+              className="h-4 w-4 accent-ems-accent"
+            />
+            Compare two dates
+          </label>
+        ) : null}
+        {!comparisonPane && comparisonEnabled && comparisonDateOne && onComparisonDateOneChange ? (
+          <DatePickerControl
+            label="Date 1 as of"
+            value={comparisonDateOne}
+            onChange={onComparisonDateOneChange}
+            fullWidthMobile
+          />
+        ) : null}
+        {!comparisonPane && comparisonEnabled && comparisonDateTwo && onComparisonDateTwoChange ? (
+          <DatePickerControl
+            label="Date 2 as of"
+            value={comparisonDateTwo}
+            onChange={onComparisonDateTwoChange}
+            fullWidthMobile
+          />
+        ) : null}
       </div>
 
       {comparisonEnabled && <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm"><div className="flex items-center justify-between border-b border-border bg-elevated px-4 py-2"><h2 className="text-sm font-bold text-text-primary">Sales Comparison</h2><span className="text-xs text-text-muted">{comparisonData ? 'Two-date sales summary' : comparisonLoading ? 'Loading comparison...' : 'Select a valid comparison date'}</span></div>{comparisonData && <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-sm"><thead><tr className="border-b border-border bg-surface text-left text-[11px] font-semibold uppercase tracking-wide text-text-muted"><th className="px-4 py-2.5">Metric</th><th className="px-4 py-2.5 text-right">Date 1: {formatDateLabel(d.asOfDate, 'MMM d, yyyy')}</th><th className="px-4 py-2.5 text-right">Date 2: {formatDateLabel(comparisonData.asOfDate, 'MMM d, yyyy')}</th><th className="px-4 py-2.5 text-right">Change</th></tr></thead><tbody>{comparisonMetrics.map((metric) => { const current = finiteNumber(metric.current); const comparison = finiteNumber(metric.comparison); const difference = current != null && comparison != null ? current - comparison : null; const formatDifference = difference == null ? EMPTY : `${difference > 0 ? '+' : ''}${metric.format(difference)}`; return <tr key={metric.label} className="border-b border-border/70 last:border-b-0"><th scope="row" className="px-4 py-3 text-left font-medium text-text-primary">{metric.label}</th><td className="px-4 py-3 text-right font-semibold tabular-nums text-text-primary">{metric.format(current)}</td><td className="px-4 py-3 text-right font-semibold tabular-nums text-text-primary">{metric.format(comparison)}</td><td className={`px-4 py-3 text-right font-semibold tabular-nums ${difference != null && difference > 0 ? 'text-ems-green' : difference != null && difference < 0 ? 'text-ems-coral' : 'text-text-muted'}`}>{formatDifference}</td></tr>; })}</tbody></table></div>}</section>}

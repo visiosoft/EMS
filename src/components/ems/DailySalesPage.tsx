@@ -11,6 +11,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Select2, Select2Multi } from './Select2';
 import {
   fetchDailySalesByPerformance,
@@ -113,11 +114,6 @@ function ReportingAsOfBar({
   /** Highlights border when "Reporting as of" fails validation. */
   inputInvalid?: boolean;
 }) {
-  const inputClass =
-    'h-9 w-[10.5rem] shrink-0 rounded-md border bg-background px-2.5 text-sm text-text-primary shadow-sm focus:outline-none focus:ring-2 disabled:opacity-50 ' +
-    (inputInvalid
-      ? 'border-ems-coral focus:ring-ems-coral/25 focus:border-ems-coral'
-      : 'border-border focus:ring-ems-accent/30 focus:border-ems-accent');
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-surface/50 px-3 py-2.5 sm:px-4">
       {onResetTableLayout ? (
@@ -138,15 +134,14 @@ function ReportingAsOfBar({
         <label htmlFor="daily-sales-asof" className="text-xs font-medium text-text-secondary whitespace-nowrap">
           Reporting as of
         </label>
-        <input
+        <DatePicker
           id="daily-sales-asof"
-          type="date"
-          className={inputClass}
           value={asOfDate}
-          onChange={(e) => onAsOfDateChange(e.target.value || todayLocalYmd())}
+          onChange={(next) => onAsOfDateChange(next || todayLocalYmd())}
           disabled={disabled}
-          aria-invalid={inputInvalid ? true : undefined}
-          aria-label="Select reporting date"
+          invalid={inputInvalid}
+          ariaLabel="Select reporting date"
+          className="w-[10.5rem] bg-background"
         />
       </div>
     </div>

@@ -72,6 +72,7 @@ import {
   fetchEngagementPerformanceTicketing,
   updateEngagementPerformanceTicketing,
   fetchPerformancesWithTicketingSummary,
+  fetchEngagementRehearsals,
   fetchEngagementIaeContactLookups,
   fetchEngagementIaeContacts,
   addEngagementIaeContact,
@@ -116,6 +117,7 @@ import {
   type UpdatePerformanceTicketingPayload,
   type ApiEngagementIaeContactRow,
   type ApiPerformanceTicketingSummaryRow,
+  type ApiEngagementRehearsal,
   type CreateEngagementIaeContactPayload,
   type UpdateEngagementIaeContactPayload,
   type UpdateEngagementPayload,
@@ -1380,13 +1382,15 @@ function AttractionTravelSection({
     );
   }
 
-  const travels = travelQuery.data ?? [];
+  const travels = (travelQuery.data ?? []).filter(
+    (t) => (t.travelType === 'Hotel' && !!t.hotel) || (t.travelType === 'Car' && (t.carServices?.length ?? 0) > 0),
+  );
 
   return (
     <div className={sectionCls}>
       <span className="text-xs font-semibold text-text-primary block">Attraction Travel</span>
 
-      {travels.length > 0 && (
+      {travels.length > 0 ? (
         <div className="space-y-3">
           {travels.map((t) => {
             const isExpanded = expandedTravelId === t.engagementTravelId;
@@ -1433,7 +1437,7 @@ function AttractionTravelSection({
                       ? <ChevronDown className="h-3.5 w-3.5 text-text-muted shrink-0" />
                       : <ChevronRight className="h-3.5 w-3.5 text-text-muted shrink-0" />}
                     <span className="text-xs font-semibold text-text-secondary shrink-0">
-                      {isHotel ? '🏨 Hotel' : '🚗 Car Service'}
+                      {isHotel ? '🏨 Hotel' : isCar ? '🚗 Car Service' : t.travelType}
                     </span>
                     {summary && (
                       <span className="text-xs text-text-muted truncate">— {summary}</span>
@@ -1537,7 +1541,9 @@ function AttractionTravelSection({
             );
           })}
         </div>
-      )}
+      ) : !addingType ? (
+        <p className="text-xs text-text-muted">No hotel or car service travel arrangements added yet.</p>
+      ) : null}
 
       {addingType === 'Hotel' && (
         <TravelHotelForm
@@ -11553,6 +11559,15 @@ export function EngagementDetailPage({
     refetchOnMount: 'always',
   });
 
+  // Rehearsal dates for Overview tab (same data as Engagement Drill Bits tab)
+  const overviewRehearsalsQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'rehearsals'],
+    queryFn: () => fetchEngagementRehearsals(engagementId),
+    enabled: tab === 'Overview',
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+
   const tourContactsQuery = useQuery({
     queryKey: ['company-contacts', 'tour-mgmt', tourMgmtCompanyId],
     queryFn: () => fetchCompanyContacts(tourMgmtCompanyId as number),
@@ -12495,13 +12510,34 @@ export function EngagementDetailPage({
                 <input
                   type="checkbox"
                   className="h-4 w-4"
-                  checked={hasRehearsalInput}
+                  checked={(overviewRehearsalsQuery.data ?? []).length > 0 || hasRehearsalInput}
                   disabled
                 />
               </label>
             </div>
 
-            {hasRehearsalInput && (
+            {overviewRehearsalsQuery.isLoading ? (
+              <div className="mt-3 flex items-center gap-2 text-text-muted text-sm"><Loader2 className="h-4 w-4 animate-spin" /> Loading rehearsal dates…</div>
+            ) : (overviewRehearsalsQuery.data ?? []).length > 0 ? (
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full text-sm min-w-[400px]">
+                  <thead>
+                    <tr className="text-text-muted text-xs border-b border-border bg-surface">
+                      <th className="text-left py-2 px-3">Rehearsal Date</th>
+                      <th className="text-left py-2 px-3">Rehearsal Time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(overviewRehearsalsQuery.data ?? []).map((r: ApiEngagementRehearsal) => (
+                      <tr key={r.rehearsalId} className="border-b border-border/50">
+                        <td className="py-2 px-3">{formatPerformanceDateDisplay(r.rehearsalDate)}</td>
+                        <td className="py-2 px-3">{r.rehearsalTime ? formatPerformanceTimeDisplay(r.rehearsalTime) : 'No time set'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : hasRehearsalInput ? (
               <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label="Rehearsal date">
                   <input
@@ -12520,7 +12556,7 @@ export function EngagementDetailPage({
                   />
                 </FormField>
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* ── Performance Schedule with Gross Potential and Capacity ── */}

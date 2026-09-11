@@ -14,6 +14,7 @@ import {
 import { fetchDailySales, fetchDailySalesByPerformance, fetchDailySalesByPerformanceSuggestions, type ApiDailySalesRow, type ApiPerformanceSalesRow, type SuggestionItem } from '@/api/dailySalesApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { Select2 } from './Select2';
+import { DatePicker } from '@/components/ui/date-picker';
 import { PAGE_SIZE, PAGE_SIZE_ALL, PAGE_SIZE_OPTIONS, type PageSizeOption, isAllPageSize, toPageSize } from '@/lib/serverPagination';
 import { PageSizeSelect } from './PageSizeSelect';
 import {
@@ -961,7 +962,6 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
 
   const isLoading = (dateOk && query.isPending) || ledgerQuery.isPending;
   const isRefreshing = (query.isFetching || ledgerQuery.isFetching) && !isLoading;
-  const dateInputClass = 'h-9 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-text-primary shadow-sm focus:outline-none focus:ring-2 focus:ring-ems-accent/30 focus:border-ems-accent transition-colors';
 
   const cell = ({ row: r, metrics: m }: SummaryRow, key: SortColumn) => {
     const ev = fmtEventDate(r.performanceDate), tm = fmtTime12(r.performanceTime), venueLabel = r.venueName ?? r.venueCompanyName, marketLabel = rowMarketName(r);
@@ -1005,10 +1005,53 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
       <FilterField label="Venue"><Select2 options={opt('All venues', pageData?.filterOptions.venues)} value={venueFilter} onChange={setVenueFilter} placeholder="All venues" allowClear={!!venueFilter} /></FilterField>
       {activeFilterCount > 0 && <button type="button" onClick={reset} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-elevated px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-ems-accent hover:border-ems-accent/30 transition-colors" title="Clear all filters"><RotateCcw className="h-3 w-3" aria-hidden />Reset</button>}
     </div>
-    {eventDateScope === 'custom' && <div className="shrink-0 flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm"><FilterField label="From"><input type="date" className={dateInputClass} value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} aria-label="Custom date range from" /></FilterField><FilterField label="To"><input type="date" className={dateInputClass} value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} aria-label="Custom date range to" /></FilterField>{!customDatesAreValid && <p className="text-[11px] text-ems-coral self-center">Enter valid from and to dates.</p>}{customDatesAreValid && !customRangeOrderIsValid && <p className="text-[11px] text-ems-coral self-center">To date must be on or after from date.</p>}<button type="button" onClick={applyCustomDateRange} disabled={!customDatesAreValid || !customRangeOrderIsValid || !customRangeHasChanges} className="inline-flex h-9 items-center justify-center rounded-lg border border-ems-accent/30 bg-ems-accent px-4 text-sm font-semibold text-white shadow-sm transition-all hover:bg-ems-accent-hover disabled:cursor-not-allowed disabled:border-border disabled:bg-elevated disabled:text-text-muted disabled:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/30">Apply range</button></div>}
+    {eventDateScope === 'custom' && (
+      <div className="shrink-0 flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+        <FilterField label="From">
+          <DatePicker
+            value={customStartDate}
+            onChange={setCustomStartDate}
+            ariaLabel="Custom date range from"
+            className="w-full sm:w-44 bg-background"
+          />
+        </FilterField>
+        <FilterField label="To">
+          <DatePicker
+            value={customEndDate}
+            onChange={setCustomEndDate}
+            ariaLabel="Custom date range to"
+            className="w-full sm:w-44 bg-background"
+          />
+        </FilterField>
+        {!customDatesAreValid && <p className="text-[11px] text-ems-coral self-center">Enter valid from and to dates.</p>}
+        {customDatesAreValid && !customRangeOrderIsValid && <p className="text-[11px] text-ems-coral self-center">To date must be on or after from date.</p>}
+        <button
+          type="button"
+          onClick={applyCustomDateRange}
+          disabled={!customDatesAreValid || !customRangeOrderIsValid || !customRangeHasChanges}
+          className="inline-flex h-9 items-center justify-center rounded-lg border border-ems-accent/30 bg-ems-accent px-4 text-sm font-semibold text-white shadow-sm transition-all hover:bg-ems-accent-hover disabled:cursor-not-allowed disabled:border-border disabled:bg-elevated disabled:text-text-muted disabled:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/30"
+        >
+          Apply range
+        </button>
+      </div>
+    )}
     <div className="shrink-0 flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
-      <FilterField label="Reporting as of"><input type="date" className={dateInputClass} value={reportAsOfInput} onChange={(e) => setReportAsOfInput(e.target.value)} aria-label="Reporting as of date" /></FilterField>
-      <button type="button" onClick={applyReportingPeriod} disabled={!iso(reportAsOfInput)} className="inline-flex h-9 items-center justify-center rounded-lg border border-ems-accent/30 bg-ems-accent px-4 text-sm font-semibold text-white shadow-sm transition-all hover:bg-ems-accent-hover disabled:cursor-not-allowed disabled:border-border disabled:bg-elevated disabled:text-text-muted disabled:shadow-none">Apply reporting date</button>
+      <FilterField label="Reporting as of">
+        <DatePicker
+          value={reportAsOfInput}
+          onChange={setReportAsOfInput}
+          ariaLabel="Reporting as of date"
+          className="w-full sm:w-48 bg-background"
+        />
+      </FilterField>
+      <button
+        type="button"
+        onClick={applyReportingPeriod}
+        disabled={!iso(reportAsOfInput)}
+        className="inline-flex h-9 items-center justify-center rounded-lg border border-ems-accent/30 bg-ems-accent px-4 text-sm font-semibold text-white shadow-sm transition-all hover:bg-ems-accent-hover disabled:cursor-not-allowed disabled:border-border disabled:bg-elevated disabled:text-text-muted disabled:shadow-none"
+      >
+        Apply reporting date
+      </button>
     </div>
     <div className="flex flex-col lg:min-h-0 lg:flex-1">
       <section className="flex flex-col min-w-0 rounded-xl border border-border bg-card shadow-sm overflow-hidden lg:min-h-0">

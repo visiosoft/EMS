@@ -719,6 +719,7 @@ export class DailySalesService {
     iaeContactIdsRaw?: string,
   ): Promise<PerformanceSalesPageResult> {
     const asOf = await this.resolveAsOfDateString(asOfDateParam);
+    const upcomingAnchor = await this.getUpcomingAnchorYmd();
     const page = Math.max(1, Number.isFinite(pageIn) ? Math.floor(pageIn) : 1);
     const pageSize = Math.min(
       10_000,
@@ -785,16 +786,19 @@ export class DailySalesService {
             totalRevenue: 0,
           },
           attractions: [],
-          filterOptions: await this.getByPerformanceFilterOptions(asOf, {
-            performanceDate,
-            startDate,
-            endDate,
-          }),
+          filterOptions: await this.getByPerformanceFilterOptions(
+            upcomingAnchor,
+            {
+              performanceDate,
+              startDate,
+              endDate,
+            },
+          ),
         };
       }
     }
 
-    const baseQb = this.createByPerformanceBaseQb(asOf, {
+    const baseQb = this.createByPerformanceBaseQb(asOf, upcomingAnchor, {
       search,
       attractionName: attractionName?.trim() || undefined,
       performanceDate,
@@ -908,7 +912,7 @@ export class DailySalesService {
           .offset((page - 1) * pageSize)
           .limit(pageSize)
           .getRawMany<Record<string, unknown>>(),
-        this.getByPerformanceFilterOptions(asOf, {
+        this.getByPerformanceFilterOptions(upcomingAnchor, {
           performanceDate,
           startDate,
           endDate,
@@ -1154,6 +1158,7 @@ export class DailySalesService {
 
   private createByPerformanceBaseQb(
     asOf: string,
+    upcomingAnchor: string,
     options: {
       search?: string;
       attractionName?: string;
@@ -1200,13 +1205,16 @@ export class DailySalesService {
         'ts_yesterday.performanceId = p.performanceId AND ' +
           'CONVERT(date, ts_yesterday.salesDate) = DATEADD(day, -1, CAST(:asOf AS date))',
       )
-      .setParameter('asOf', asOf);
+      .setParameter('asOf', asOf)
+      .setParameter('upcomingAnchor', upcomingAnchor);
 
     const hasExplicitPerfDateFilter = Boolean(
       options.performanceDate || options.startDate || options.endDate,
     );
     if (!hasExplicitPerfDateFilter) {
-      qb.andWhere('CONVERT(date, p.performanceDate) >= CAST(:asOf AS date)');
+      qb.andWhere(
+        'CONVERT(date, p.performanceDate) >= CAST(:upcomingAnchor AS date)',
+      );
     }
 
     if (options.performanceDate) {
@@ -1346,7 +1354,7 @@ export class DailySalesService {
   }
 
   private async getByPerformanceFilterOptions(
-    asOf: string,
+    upcomingAnchor: string,
     options: { performanceDate?: string; startDate?: string; endDate?: string },
   ): Promise<{
     genres: string[];
@@ -1368,13 +1376,15 @@ export class DailySalesService {
       )
       .leftJoin(Venue, 'v', 'v.companyId = ev.venueCompanyId')
       .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
-      .setParameter('asOf', asOf);
+      .setParameter('upcomingAnchor', upcomingAnchor);
 
     const hasExplicitPerfDateFilter = Boolean(
       options.performanceDate || options.startDate || options.endDate,
     );
     if (!hasExplicitPerfDateFilter) {
-      base.andWhere('CONVERT(date, p.performanceDate) >= CAST(:asOf AS date)');
+      base.andWhere(
+        'CONVERT(date, p.performanceDate) >= CAST(:upcomingAnchor AS date)',
+      );
     }
 
     if (options.performanceDate) {
@@ -1664,7 +1674,7 @@ export class DailySalesService {
   ): Promise<Array<{ label: string; sublabel: string }>> {
     const q = (query ?? '').trim().toLowerCase();
     if (!q) return [];
-    const asOf = await this.resolveAsOfDateString(asOfDateParam);
+    const upcomingAnchor = await this.getUpcomingAnchorYmd();
     const performanceDate = this.normalizeOptionalYmd(performanceDateRaw);
     const startDate = this.normalizeOptionalYmd(startDateRaw);
     const endDate = this.normalizeOptionalYmd(endDateRaw);
@@ -1689,14 +1699,14 @@ export class DailySalesService {
       .leftJoin(Venue, 'v', 'v.companyId = ev.venueCompanyId')
       .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
       .leftJoin(Address, 'addr', 'addr.addressId = vc.physicalAddressId')
-      .setParameter('asOf', asOf);
+      .setParameter('upcomingAnchor', upcomingAnchor);
 
     const hasExplicitPerfDateFilter = Boolean(
       performanceDate || startDate || endDate,
     );
     if (!hasExplicitPerfDateFilter) {
       baseQb.andWhere(
-        'CONVERT(date, p.performanceDate) >= CAST(:asOf AS date)',
+        'CONVERT(date, p.performanceDate) >= CAST(:upcomingAnchor AS date)',
       );
     }
     if (performanceDate) {
@@ -1802,6 +1812,18 @@ export class DailySalesService {
     if (!s) return undefined;
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
     return undefined;
+  }
+
+  /**
+   * Anchor for the "upcoming performance" eligibility filter — always the real
+   * server calendar day, never the user-selected reporting asOf date. Keeping
+   * this independent of asOf ensures the same performance stays the engagement's
+   * representative row as the user pages the report date around it; otherwise
+   * today/yesterday columns can silently swap to a different performance's
+   * sales history whenever asOf crosses a performance's date.
+   */
+  private async getUpcomingAnchorYmd(): Promise<string> {
+    return this.resolveAsOfDateString(undefined);
   }
 
   /** YYYY-MM-DD or fetch from server via GETDATE() for consistency with SQL. */
