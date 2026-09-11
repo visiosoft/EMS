@@ -160,7 +160,7 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
     useEffect(() => {
         if (settings) {
             setProvider(settings.provider || 'openai');
-            setModel(settings.model || (settings.provider === 'anthropic' ? 'claude-3-5-sonnet-20241022' : 'gpt-4o'));
+            setModel(settings.model || (settings.provider === 'anthropic' ? 'claude-sonnet-4-6' : 'gpt-4o'));
             setSystemPrompt(settings.systemPrompt || '');
             setTemperature(settings.temperature ?? 0.2);
             setMaxTokens(settings.maxTokens ?? 3000);
@@ -388,11 +388,12 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
     const currentModels = provider === 'openai'
         ? (settings?.availableModels.openai || ['gpt-4o', 'gpt-4o-mini', 'o3-mini', 'gpt-4-turbo'])
         : (settings?.availableModels.anthropic || [
-            'claude-3-5-sonnet-20241022',
-            'claude-3-5-haiku-20241022',
-            'claude-3-haiku-20240307',
-            'claude-3-7-sonnet-20250219',
-            'claude-3-opus-20240229',
+            'claude-sonnet-4-6',
+            'claude-haiku-4-5-20251001',
+            'claude-opus-4-8',
+            'claude-opus-4-7',
+            'claude-opus-4-6',
+            'claude-sonnet-4-5-20250929',
         ]);
 
     return (
@@ -514,7 +515,7 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
                                 type="button"
                                 onClick={() => {
                                     setProvider('anthropic');
-                                    setModel('claude-3-5-sonnet-20241022');
+                                    setModel('claude-sonnet-4-6');
                                 }}
                                 className={`flex items-start gap-3 p-4 rounded-lg border text-left transition-all ${provider === 'anthropic'
                                     ? 'border-ems-accent bg-ems-accent/10 shadow-sm'
@@ -555,7 +556,7 @@ export function AiSettingsPanel({ addToast, onSaved }: Props) {
                                 >
                                     {currentModels.map((m) => (
                                         <option key={m} value={m}>
-                                            {m} {m === 'gpt-4o' || m === 'claude-3-5-sonnet-20241022' ? '(Recommended)' : ''}
+                                            {m} {m === 'gpt-4o' || m === 'claude-sonnet-4-6' ? '(Recommended)' : ''}
                                         </option>
                                     ))}
                                 </select>

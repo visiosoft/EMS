@@ -89,6 +89,9 @@ export interface AiLogRecord {
     answerSummary: string;
     toolsUsed: string[];
     latencyMs: number;
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
     feedback?: 'thumbs_up' | 'thumbs_down';
     feedbackComment?: string;
     error?: string;

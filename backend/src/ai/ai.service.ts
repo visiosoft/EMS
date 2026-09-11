@@ -55,7 +55,7 @@ export class AiService {
         const envOpenaiKey = this.config.get<string>('OPENAI_API_KEY') || '';
         const envAnthropicKey = this.config.get<string>('ANTHROPIC_API_KEY') || '';
         const defaultProvider: AiProvider = (this.config.get<string>('AI_DEFAULT_PROVIDER') as AiProvider) || 'openai';
-        const defaultModel = defaultProvider === 'anthropic' ? 'claude-3-5-sonnet-20241022' : 'gpt-4o';
+        const defaultModel = defaultProvider === 'anthropic' ? 'claude-sonnet-4-6' : 'gpt-4o';
 
         const fallback: AiSettings = {
             provider: defaultProvider,
@@ -126,13 +126,12 @@ export class AiService {
             availableModels: {
                 openai: ['gpt-4o', 'gpt-4o-mini', 'o3-mini', 'gpt-4-turbo'],
                 anthropic: [
-                    'claude-3-5-haiku-20241022',
-                    'claude-3-haiku-20240307',
-                    'claude-3-5-sonnet-20241022',
-                    'claude-3-5-sonnet-20240620',
-                    'claude-3-sonnet-20240229',
-                    'claude-3-7-sonnet-20250219',
-                    'claude-3-opus-20240229',
+                    'claude-sonnet-4-6',
+                    'claude-haiku-4-5-20251001',
+                    'claude-opus-4-8',
+                    'claude-opus-4-7',
+                    'claude-opus-4-6',
+                    'claude-sonnet-4-5-20250929',
                 ],
             },
         };
@@ -325,7 +324,7 @@ export class AiService {
         const key = (apiKey != null && apiKey.trim().length > 0)
             ? apiKey.trim()
             : (targetProvider === 'openai' ? this.settings.openaiApiKey : this.settings.anthropicApiKey);
-        const targetModel = model || (targetProvider === 'openai' ? 'gpt-4o-mini' : 'claude-3-5-haiku-20241022');
+        const targetModel = model || (targetProvider === 'openai' ? 'gpt-4o-mini' : 'claude-haiku-4-5-20251001');
 
         if (!key) {
             return {
@@ -369,7 +368,7 @@ export class AiService {
             this.logger.error(`AI test connection error: ${err.message}`, err.stack);
             let detailMsg = err?.error?.message || err?.message || 'Connection test failed';
             if (err?.status === 404 || (typeof detailMsg === 'string' && detailMsg.includes('not_found_error'))) {
-                detailMsg = `Model "${targetModel}" is not enabled on this Anthropic account tier. Try switching to "claude-3-5-haiku-20241022" or "claude-3-haiku-20240307".`;
+                detailMsg = `Anthropic rejected model "${targetModel}". The model may be retired or unavailable for this API organization. Check the models enabled for the API key.`;
             }
             return {
                 success: false,
@@ -392,6 +391,38 @@ export class AiService {
 
     private buildEffectiveSystemPrompt(customSystemPrompt?: string): string {
         let prompt = customSystemPrompt || this.settings.systemPrompt || DEFAULT_AI_SYSTEM_PROMPT;
+        prompt += `
+
+### RESPONSE QUALITY & PRESENTATION CONTRACT:
+1. Lead with the direct answer in one or two sentences. Do not begin with filler such as "Based on the information...".
+2. Separate verified EMS results from guidance or interpretation. Use headings such as **Found in EMS** and **Recommended options** only when both are needed.
+3. Never present a general recommendation as if it came from the database. If a category is inferred from a venue name, label it as an inference. If the user asks for database values, include only values returned by a tool.
+4. Use a Markdown table only for three or more comparable records. Keep tables compact and use columns that help the user decide; use bullets for short lists.
+5. Do not repeat the same venues, categories, or explanation in multiple sections. Merge overlapping information into one clear list.
+6. End with a brief **Note** only when an assumption, missing record, or verification step matters. Do not add a generic conclusion.
+7. Prefer precise, readable language over decorative wording. Use bold sparingly for labels and important values.
+
+### CHAT PANEL RENDERING (HOW YOUR MARKDOWN IS DISPLAYED):
+1. The chat panel renders GitHub-flavored Markdown: headings, bold, italics, bullet and numbered lists, tables, blockquotes, links, and code. It does NOT render Mermaid diagrams or raw HTML — never output \`mermaid\` code blocks or HTML tags. Explain workflows as numbered steps instead.
+2. Start a response that has a table or multiple sections with a short title on its own line (e.g. **Top 5 Venues in New York**). Use \`###\` headings for additional sections.
+3. Paragraphs that start with **Note:**, **Tip:**, or **Warning:** are displayed as highlighted callout boxes. Use at most one callout per answer, and keep it to one or two sentences.
+4. In tables, show missing values as "—" instead of a phrase, then explain the missing values once below the table. Keep numbers raw and formatted (1,600 or $125,000.00) so they align in columns; do not put units or words in numeric cells.
+5. Keep paragraphs short (at most three sentences) and leave a blank line between blocks so lists and tables render correctly.`;
+    prompt += `
+
+### DIRECTORY AND LARGE-LIST RESPONSES:
+1. For requests that return a directory of names, use a concise heading such as **Attractions in EMS** or **Matching attractions** followed by one short sentence with the verified count or visible range.
+2. Preserve useful identifiers such as AttractionID, but do not add columns that were not returned by the tool.
+3. If the result contains more than 20 records, show at most 20 representative rows unless the user explicitly requests all records or a specific count. State that the list is truncated and offer search, filtering, or pagination.
+4. If the tool reports a total count, state it accurately. Never infer a total from a truncated result.
+5. Do not add unsupported classifications or commentary about the records. For example, do not describe attractions as Broadway, concerts, or children's shows unless the tool data or the user's question supports that conclusion.
+6. Do not end with a generic question such as "Would you like to see more?". Offer one concrete next action only when useful, such as searching by name or filtering by a letter.
+7. For a simple list request, use this structure and no extra sections:
+    **[Entity] in EMS**
+    One sentence stating the verified count or shown range.
+    A compact table with the returned identifier and name columns.
+    _Showing X of Y records._
+    One short sentence describing a concrete search or filter option.`;
         const rulesList = this.getSchemaTableRules().filter(
             (r) => r.businessRules && r.businessRules.trim().length > 0,
         );
@@ -462,6 +493,9 @@ export class AiService {
                 answerSummary: response.answer.substring(0, 300),
                 toolsUsed: (response.toolsUsed || []).map((t) => t.name),
                 latencyMs,
+                promptTokens: response.usage?.promptTokens,
+                completionTokens: response.usage?.completionTokens,
+                totalTokens: response.usage?.totalTokens,
             });
 
             return response;
@@ -617,6 +651,8 @@ export class AiService {
         let iterations = 0;
         const maxIterations = 6;
         let finalAnswer = '';
+        let promptTokens = 0;
+        let completionTokens = 0;
 
         while (iterations < maxIterations) {
             iterations++;
@@ -628,6 +664,9 @@ export class AiService {
                 temperature: this.settings.temperature,
                 max_tokens: this.settings.maxTokens,
             });
+
+            promptTokens += response.usage?.input_tokens || 0;
+            completionTokens += response.usage?.output_tokens || 0;
 
             const textParts: string[] = [];
             const toolUseBlocks: Anthropic.ToolUseBlock[] = [];
@@ -679,6 +718,11 @@ export class AiService {
             provider: 'anthropic',
             model,
             toolsUsed,
+            usage: {
+                promptTokens,
+                completionTokens,
+                totalTokens: promptTokens + completionTokens,
+            },
         };
     }
 }
