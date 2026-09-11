@@ -1382,13 +1382,15 @@ function AttractionTravelSection({
     );
   }
 
-  const travels = travelQuery.data ?? [];
+  const travels = (travelQuery.data ?? []).filter(
+    (t) => (t.travelType === 'Hotel' && !!t.hotel) || (t.travelType === 'Car' && (t.carServices?.length ?? 0) > 0),
+  );
 
   return (
     <div className={sectionCls}>
       <span className="text-xs font-semibold text-text-primary block">Attraction Travel</span>
 
-      {travels.length > 0 && (
+      {travels.length > 0 ? (
         <div className="space-y-3">
           {travels.map((t) => {
             const isExpanded = expandedTravelId === t.engagementTravelId;
@@ -1435,7 +1437,7 @@ function AttractionTravelSection({
                       ? <ChevronDown className="h-3.5 w-3.5 text-text-muted shrink-0" />
                       : <ChevronRight className="h-3.5 w-3.5 text-text-muted shrink-0" />}
                     <span className="text-xs font-semibold text-text-secondary shrink-0">
-                      {isHotel ? '🏨 Hotel' : '🚗 Car Service'}
+                      {isHotel ? '🏨 Hotel' : isCar ? '🚗 Car Service' : t.travelType}
                     </span>
                     {summary && (
                       <span className="text-xs text-text-muted truncate">— {summary}</span>
@@ -1539,7 +1541,9 @@ function AttractionTravelSection({
             );
           })}
         </div>
-      )}
+      ) : !addingType ? (
+        <p className="text-xs text-text-muted">No hotel or car service travel arrangements added yet.</p>
+      ) : null}
 
       {addingType === 'Hotel' && (
         <TravelHotelForm
