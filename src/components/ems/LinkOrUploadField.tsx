@@ -1,5 +1,5 @@
-import { Cloud, ExternalLink, Loader2, Trash2, Upload } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { Cloud, ExternalLink, Loader2, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 import { deriveLinkFieldName, extractLinkDisplayName, withLinkDisplayName } from '@/lib/linkDisplayName';
 import {
   isSharePointPickerConfigured,
@@ -52,7 +52,6 @@ export function LinkOrUploadField({
   readOnly,
   helperText,
 }: Props) {
-  const fileRef = useRef<HTMLInputElement>(null);
   const [picking, setPicking] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const spConfigured = isSharePointPickerConfigured();
@@ -130,29 +129,6 @@ export function LinkOrUploadField({
           title={value.url ?? undefined}
         />
         <div className="flex min-w-0 flex-wrap items-start gap-1 self-start shrink-0 sm:col-start-2 sm:col-span-1 lg:col-start-3 lg:col-span-1 lg:flex-nowrap">
-          <input
-            ref={fileRef}
-            type="file"
-            className="hidden"
-            accept={accept}
-            disabled={disabled}
-            onChange={(e) => {
-              const f = e.target.files?.[0] ?? null;
-              if (f) {
-                onChange({ ...value, pendingFile: f, url: null, name: deriveLinkFieldName(label) });
-              }
-              e.currentTarget.value = '';
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            disabled={disabled}
-            className="inline-flex h-[38px] items-center gap-1 rounded-md border border-border px-2 py-2 text-xs text-text-secondary hover:text-text-primary hover:bg-elevated disabled:opacity-50"
-            title="Upload file from your computer"
-          >
-            <Upload className="h-3.5 w-3.5" />
-          </button>
           {spConfigured && (
             <button
               type="button"

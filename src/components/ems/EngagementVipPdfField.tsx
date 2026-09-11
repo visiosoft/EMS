@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Cloud, ExternalLink, Loader2, Pencil, Save, Trash2, Upload, X } from 'lucide-react';
+import { AlertCircle, Cloud, ExternalLink, Loader2, Pencil, Save, Trash2, X } from 'lucide-react';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import {
   fetchEngagementVipPdf,
@@ -222,32 +222,11 @@ export function EngagementVipPdfField({ engagementId, addToast }: Props) {
             }}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
-            placeholder="https://… or upload a file"
+            placeholder="https://… or upload a file from SharePoint"
             disabled={save.isPending || !!pendingFile}
             title={url || undefined}
           />
           <div className="flex min-w-0 flex-wrap items-start gap-1 self-start shrink-0 sm:col-start-2 sm:col-span-1 lg:col-start-3 lg:col-span-1 lg:flex-nowrap">
-            <label
-              className="inline-flex h-[38px] items-center rounded-md border border-border px-2 py-2 text-xs text-text-secondary hover:text-text-primary hover:bg-elevated cursor-pointer disabled:opacity-50"
-              title="Upload file from your computer"
-            >
-              <Upload className="h-3.5 w-3.5" />
-              <input
-                type="file"
-                className="hidden"
-                accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.webp,.txt"
-                disabled={save.isPending}
-                onChange={(e) => {
-                  const f = e.target.files?.[0] ?? null;
-                  if (f) {
-                    setPendingFile(f);
-                    setName('VIP PDF');
-                    setUrl('');
-                  }
-                  e.currentTarget.value = '';
-                }}
-              />
-            </label>
             {isSharePointPickerConfigured() && (
               <button
                 type="button"
